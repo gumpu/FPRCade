@@ -7,6 +7,8 @@
 #define MEMORY_SIZE 65536
 #define DSTACK_SIZE 16
 #define RSTACK_SIZE 32
+#define CSTACK_SIZE 32
+#define TSTACK_SIZE 16
 #define MAX_STACK_SIZE 64
 
 /* Stack IDs */
@@ -16,14 +18,15 @@
 #define TEMP_STACK    0x03
 
 enum ExceptionCode {
-    StackOverflow = 1U,
+    AllIsOK = 0U,
+    StackOverflow,
     StackUnderflow,
     IllegalInstruction,
     IllegalStackID
 };
 
 char* exception_descriptions[] = {
-    "None",
+    "All is OK",
     "Stack overflow",
     "Stack underflow",
     "Illegal instruction",
@@ -39,17 +42,29 @@ struct Stack {
 struct CPU_Context {
     bool keep_going;
     uint16_t exception;
-    struct Stack dstack;
-    struct Stack rstack;
-    struct Stack cstack;
-    struct Stack tstack;
+    struct Stack data_stack;
+    struct Stack return_stack;
+    struct Stack control_stack;
+    struct Stack temp_stack;
     uint16_t pc;
     uint16_t instruction;
 };
 
+static char* memory = NULL;
+
+/* --------------------------------------------------------------------*/
+
+static void push(
+    struct CPU_Context* c,
+    struct Stack* s,
+    uint16_t value);
+static uint16_t pop(
+    struct CPU_Context* c,
+    struct Stack* s);
 static void cpu_reset(struct CPU_Context* c);
 static void run(struct CPU_Context* c, char* memory);
-static char* memory = NULL;
+
+/* --------------------------------------------------------------------*/
 
 static void push(
         struct CPU_Context* c,
@@ -82,36 +97,43 @@ static uint16_t pop(
 /* Perform CPU reset */
 static void cpu_reset(struct CPU_Context* c)
 {
-    c->dstack.size = DSTACK_SIZE;
-    c->dstack.top  = 0U;
-    c->rstack.size = RSTACK_SIZE;
-    c->rstack.top  = 0U;
+    c->data_stack.size    = DSTACK_SIZE;
+    c->data_stack.top     = 0U;
+    c->return_stack.size  = RSTACK_SIZE;
+    c->return_stack.top   = 0U;
+    c->control_stack.size = CSTACK_SIZE;
+    c->control_stack.top  = 0U;
+    c->temp_stack.size    = TSTACK_SIZE;
+    c->temp_stack.top     = 0U;
+
     c->pc          = 0x0000;  /* program counter */
-    c->instruction = 0x0000; /* current instruction */
-    c->keep_going = true;
-    c->exception   = 0U;
+    c->instruction = 0x0000;  /* current instruction */
+    c->keep_going  = true;
+    c->exception   = AllIsOK;
 }
 
-
+/*
+ * Get pointer to the stack indicated by the stack ID.
+ */
 struct Stack* get_stack(struct CPU_Context* c, uint16_t stack_id)
 {
     struct Stack* stack;
 
     switch (stack_id) {
         case DATA_STACK:
-            stack = &(c->dstack);
+            stack = &(c->data_stack);
             break;
         case RETURN_STACK:
-            stack = &(c->rstack);
+            stack = &(c->return_stack);
             break;
         case CONTROL_STACK:
-            stack = &(c->cstack);
+            stack = &(c->control_stack);
             break;
         case TEMP_STACK:
-            stack = &(c->tstack);
+            stack = &(c->temp_stack);
             break;
         default:
-            stack = &(c->dstack);
+            stack = &(c->data_stack);
             c->exception = IllegalStackID;
             c->keep_going = false;
     }
@@ -121,68 +143,7 @@ struct Stack* get_stack(struct CPU_Context* c, uint16_t stack_id)
 
 
 /*
-   p   - 1/0  signed/unsigned
-   ddd - data
-   ss  - source stack 11/10/01/00
-   tt  - target stack 11/10/01/00
-       00 Data Stack
-       01 Return Stack
-       10 Control Stack
-       11 Temp Stack
-   ffff - function
-
-   Bit
-   111111
-   5432109876543210
-   ||||||||||||||||
-   0000
-   0001dddddddddddd BIF branch if false
-   0010xxxxxxxxxxxx unused
-   0011xxxxxxxxxxxx unused
-   01dddddddddddddd ENTER
-   1000ffffxxxxxxxx
-       0000xxxxxxxx NOP
-       0001xxxxxxxx LEAVE
-       0010xxxxxxxx HALT
-   1001xxxxxxxxxxxx unused
-   1010xxxxxxxxxxxx unused
-   1011ffffssttxxxx Stack operations
-       0000         DROP ss
-       0001         DUP ss
-       0010         SWAP ss
-       0011         MOV ss -> dd
-   1100ssdddddddddd LDL LOAD Immediate low 10 bits
-   1101ssddddddxxxx LDH LOAD Immediate high 6 bits
-      |   |   |   |
-   1110fffffxxpxxxx Operates on data stack (2 values)
-       00000xx0xxxx ADDU (Unsinged)
-       00000xx1xxxx ADD (Signed)
-       00001xx0xxxx UMUL (Unsinged)
-       00001xx1xxxx MUL (Signed)
-       00010xx0xxxx AND
-       00010xx1xxxx OR
-       00011xx0xxxx XOR
-       00011xx1xxxx
-       00100xx0xxxx >> (Unsinged)
-       00100xx1xxxx >> (Signed) Extends sign
-       00101xx0xxxx LTU
-       00101xx1xxxx LT
-       00110xx0xxxx GTU
-       00110xx1xxxx GT
-       00111xx0xxxx LTEU
-       00111xx1xxxx LTE
-       01000xx0xxxx GTEU
-       01000xx1xxxx GTE
-       01001xx0xxxx <<
-       01001xx1xxxx
-       01010xxxxxxx STO.b
-       01011xxxxxxx STO.w
-       01100xxxxxxx STO.l
-      |   |   |   |
-   1111fffffxxxxxxx Operates on data stack (1 values)
-       00000xxxxxxx NEG
-       00111xxxxxxx NOT
-
+ * run the processor
  */
 
 static void run(struct CPU_Context* c, char* memory)
@@ -196,7 +157,7 @@ static void run(struct CPU_Context* c, char* memory)
             case 0x1000:
                 {
                     uint16_t truth_value;
-                    struct Stack* stack = &(c->dstack);
+                    struct Stack* stack = &(c->data_stack);
                     truth_value = pop(c, stack);
                     if (truth_value) {
                         (c->pc) += 2;
@@ -222,7 +183,7 @@ static void run(struct CPU_Context* c, char* memory)
                         case 0x0000: /* NOP */
                             (c->pc) += 2;
                             break;
-                        case 0x0F00: /* HALT */
+                        case 0x0200: /* HALT */
                             (c->pc) += 2;
                             c->keep_going = false;
                             break;
@@ -238,7 +199,7 @@ static void run(struct CPU_Context* c, char* memory)
                     struct Stack* source_stack;
                     uint16_t func = (c->instruction & 0x0F00);
                     uint16_t source_stack_id = (c->instruction & 0x00C0) >> 6;
-                    uint16_t dest_stack_id = (c->instruction & 0x0030) >> 4;
+                    // TODO uint16_t dest_stack_id = (c->instruction & 0x0030) >> 4;
                     source_stack = get_stack(c, source_stack_id);
                     switch (func) {
                         case 0x0000: /* DROP */
@@ -266,7 +227,7 @@ static void run(struct CPU_Context* c, char* memory)
                     (c->pc) += 2;
                 }
                 break;
-            case 0xD000:
+            case 0xD000: /* TODO */
                 c->exception = IllegalInstruction;
                 c->keep_going = false;
                 break;
@@ -274,17 +235,23 @@ static void run(struct CPU_Context* c, char* memory)
                 {
                     uint16_t func = (c->instruction & 0x0F80);
                     uint16_t is_signed = (c->instruction & 0x0010);
-                    struct Stack* stack = &(c->dstack);
+                    struct Stack* stack = &(c->data_stack);
                     switch (func) {
                         case 0x0000: /* ADD(U) */
                             {
-                               uint16_t v1, v2;
-
-                                v1 = pop(c, stack);
-                                v2 = pop(c, stack);
-                                v1 = v1 + v2;
-                                push(c, stack, v1);
-                                // TODO Signed
+                                if (is_signed) {
+                                    int16_t v1, v2;
+                                    v1 = pop(c, stack);
+                                    v2 = pop(c, stack);
+                                    v1 = v1 + v2;
+                                    push(c, stack, (uint16_t)v1);
+                                } else {
+                                    uint16_t v1, v2;
+                                    v1 = pop(c, stack);
+                                    v2 = pop(c, stack);
+                                    v1 = v1 + v2;
+                                    push(c, stack, v1);
+                                }
                             }
                             break;
                         case 0x0300: /* GT(U) */
@@ -325,7 +292,7 @@ static void run(struct CPU_Context* c, char* memory)
 #define INPF_BUFFER_SIZE 1024
 
 /*
- * Load an with fasm  assembled file
+ * Load a with fasm assembled file
  */
 bool load_hex(char* filename, char* memory)
 {

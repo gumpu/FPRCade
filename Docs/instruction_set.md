@@ -4,15 +4,14 @@ FCPU instruction set Version 0.001
 
 All instructions are 16 Bit.
 
-Bits 15 to 12 indicate the instruction category, the remaining bits encode the
-function, stack id, signed/unsigned, and values.
+Bits 15 to 12 indicate the instruction category, the remaining bits are used
+to encode the function, stack id, signed/unsigned, and/or values.
 
-The processor has four stacks for: data, return addresses, control data, and temporary values.
-
+The processor has four stacks for: data, return addresses, control data, and
+temporary values.
 They are indicated by:  D, R, C, and T.
 
 It supports the following arithmetic operations (signed and unsigned): + - / * %
-
 
 The following bit operations (unsigned): >> << | & ^
 
@@ -116,4 +115,78 @@ The meaning of the field names is as follows:
       010 2 bytes
       011 illegal
       100 4 bytes
+
+## Details
+
+
+ADD
+
+ADDU
+
+AND
+
+ASR
+
+ASRU
+
+BIF
+
+DROP  (x: u1 -- x: )
+
+DUP
+
+ENTER ( -- r: a1)
+
+EQ   (u1 u2 -- tf)
+
+GT   (u1 u2 -- tf)
+
+GTE  (u1 u2 -- tf)
+
+GTEU (u1 u2 -- tf)
+
+GTU  (u1 u2 -- tf)
+
+HALT
+
+LDH  (u2 -- u2)
+
+LDL  (   -- u2)
+
+LEAVE (r: a1 -- )
+
+LSL (u1 -- u2)
+
+LSR (u1 -- u2)
+
+LT  (u1 u2 -- tf)
+
+LTE   (u1 u2 -- tf)
+
+LTEU  (u1 u2 -- tf)
+
+LTU  (u1 u2 -- tf)
+
+MOV  (x: x1 -- y: x1)
+
+MUL
+
+MULU
+
+NEG (n1 -- n2)
+
+NOP ( -- )
+
+NOT (u1 -- u2)
+
+OR  (u1 u2 -- u3)
+
+RD  (a1 -- u1)
+
+STO
+
+SWAP
+
+XOR
+
 vi: spell spl=en

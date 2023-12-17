@@ -273,14 +273,14 @@ static bool check_label(label_table_t* lt, char* line, uint16_t address)
 static uint16_t nop_generator(
         char* line, FILE* outpf, uint16_t address, label_table_t* table)
 {
-    fprintf(outpf, "%04x 8000 ; NOP\n", address);
+    fprintf(outpf, "%04x 8000 ; %s\n", address, line);
     return address + 2;
 }
 
 static uint16_t halt_generator(
         char* line, FILE* outpf, uint16_t address, label_table_t* table)
 {
-    fprintf(outpf, "%04x 8200 ; HALT\n", address);
+    fprintf(outpf, "%04x 8200 ; %s\n", address, line);
     return address + 2;
 }
 
@@ -315,8 +315,8 @@ static uint16_t ldl_generator(
                     uint16_t instruction = 0xC000;
                     instruction |= value;
                     instruction |= (bits << 10);
-                    fprintf(outpf, "%04x %04x ; Push(%0x %c, %d)\n",
-                            address, instruction, bits, destination, value);
+                    fprintf(outpf, "%04x %04x ; %s\n",
+                            address, instruction, line);
                     new_address += 2;
                 } else {
                     snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
@@ -331,14 +331,14 @@ static uint16_t ldl_generator(
 static uint16_t lt_generator(
         char* line, FILE* outpf, uint16_t address, label_table_t* table)
 {
-    fprintf(outpf, "%04x e290 ; LT\n", address);
+    fprintf(outpf, "%04x e290 ; %s\n", address, line);
     return address + 2;
 }
 
 static uint16_t gt_generator(
         char* line, FILE* outpf, uint16_t address, label_table_t* table)
 {
-    fprintf(outpf, "%04x e310 ; GT\n", address);
+    fprintf(outpf, "%04x e310 ; %s\n", address, line);
     return address + 2;
 }
 
@@ -347,7 +347,7 @@ static uint16_t gt_generator(
 static uint16_t add_generator(
         char* line, FILE* outpf, uint16_t address, label_table_t* table)
 {
-    fprintf(outpf, "%04x e010 ; ADD\n", address);
+    fprintf(outpf, "%04x e010 ; %s\n", address, line);
     return address + 2;
 }
 
@@ -371,8 +371,8 @@ static uint16_t dup_generator(
         } else {
             uint16_t instruction = 0xB100;
             instruction |= (bits << 6);
-            fprintf(outpf, "%04x %04x ; DUP (%0x %c)\n",
-                    address, instruction, bits, destination);
+            fprintf(outpf, "%04x %04x ; %s\n",
+                    address, instruction, line);
 
             new_address += 2;
         }
@@ -398,8 +398,8 @@ static uint16_t bif_generator(
             instruction = 0x1000;
             delta = location - new_address;
             instruction |= delta & 0x0FFF;
-            fprintf(outpf, "%04x %04x ; BIF %d (%04x)\n",
-                    new_address, instruction, delta, location);
+            fprintf(outpf, "%04x %04x ; %s  (%04x)\n",
+                    new_address, instruction, line, location);
             new_address += 2;
         } else {
             snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,

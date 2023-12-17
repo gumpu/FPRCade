@@ -148,6 +148,7 @@ struct Stack* get_stack(struct CPU_Context* c, uint16_t stack_id)
 
 static void run(struct CPU_Context* c, char* memory)
 {
+    printf("Running\n");
     while(c->keep_going) {
         c->instruction = *(uint16_t*)(memory + c->pc);
 
@@ -313,13 +314,14 @@ bool load_hex(char* filename, char* memory)
             int value;
             printf("%s", line);
             sscanf(line, "%x %x", &location, &value);
-            printf("%x %x\n", location, value);
+            // printf("%x %x\n", location, value);
             address = (uint16_t*)(memory + location);
             *address = (uint16_t)value;
             line = fgets(buffer, INPF_BUFFER_SIZE, inpf);
         }
         ok = true;
     }
+    printf("Loading completed\n");
     return ok;
 }
 

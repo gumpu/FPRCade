@@ -1,5 +1,5 @@
 /*
- * Assembler for the FPRCade processor
+ * Assembler for the FPRCade processor Stackmaster-16
  *
  */
 #include <stdlib.h>
@@ -631,6 +631,9 @@ int main(int argc, char** argv)
         } else {
             perror("input fopen:");
         }
+    } else {
+        fprintf(stderr, "Nothing to assemble\n");
+        fprintf(stderr, "Usage: fa <source>\n");
     }
     return EXIT_SUCCESS;
 }

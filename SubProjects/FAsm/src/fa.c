@@ -89,20 +89,20 @@ static uint16_t get_stack_id(char c)
     uint16_t id;
     switch (c) {
         case 'D':
-            id = 0b00;
+            id = 0x0;
             break;
         case 'C':
-            id = 0b01;
+            id = 0x1;
             break;
         case 'R':
-            id = 0b10;
+            id = 0x2;
             break;
         case 'T':
-            id = 0b11;
+            id = 0x3;
             break;
         default:
             /* Error, unknown stack */
-            id = 0b1111;
+            id = 0xF;
             break;
     }
     return id;
@@ -125,11 +125,11 @@ static char* skip_word(char *line)
 static char* skip_spaces(char *line)
 {
     char *c;
+    c = line;
     if (*c != '\0') {
-        for (c = line; isspace(*c); c++);
+        for (; isspace(*c); c++);
     } else {
         /* Do not go past the end of a line */
-        c = line;
     }
     return c;
 }
@@ -304,7 +304,7 @@ static uint16_t ldl_generator(
         uint16_t value;
         char destination = *c;
         uint16_t bits = get_stack_id(destination);
-        if (bits == 0b111) {
+        if (bits == 0x7) {
             snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                     "%s", "illegal destination");
         } else {
@@ -362,10 +362,9 @@ static uint16_t dup_generator(
         snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                  "%s", "no destination");
     } else {
-        uint16_t value;
         char destination = *c;
         uint16_t bits = get_stack_id(destination);
-        if (bits == 0b111) {
+        if (bits == 0x7) {
             snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                     "%s", "illegal destination");
         } else {

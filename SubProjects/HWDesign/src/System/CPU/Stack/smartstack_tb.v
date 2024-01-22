@@ -4,17 +4,19 @@
 //
 //
 
-module SmartStack_TB #(parameter WIDTH=16, DEPTH=20) ();
+module SmartStack_TB #(parameter WIDTH=16, DEPTH=8) ();
 
+    reg r_rst;
     reg r_clk;
-    wire [WIDTH-1:0] r_A;
-    wire [WIDTH-1:0] r_B;
+    wire [WIDTH-1:0] w_A;
+    wire [WIDTH-1:0] w_B;
     reg  [WIDTH-1:0] r_D;
     reg  [2:0]       r_func;
-    reg fetch;
-    reg store;
+    reg r_fetch;
+    reg r_store;
 
     SmartStack uut(
+        .i_rst (r_rst),
         .i_clk (r_clk),
         .i_fetch (r_fetch),
         .i_store (r_store),
@@ -32,11 +34,18 @@ module SmartStack_TB #(parameter WIDTH=16, DEPTH=20) ();
         $dumpvars(0, SmartStack_TB);
 
         r_clk = 1'b0;
-        forever #5 r_clk = ~r_clk; // generate a clock
+        forever #10 r_clk = ~r_clk; // generate a clock
     end
 
 
     initial begin
+        r_rst = 1'b0;
+        #3
+        r_rst = 1'b1;
+        #3
+        r_rst = 1'b0;
+        r_fetch = 1'b1;
+        r_store = 1'b0;
         #100
         $finish;
     end

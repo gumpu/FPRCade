@@ -23,7 +23,7 @@ Stack: drop swap dup over pop push pick
 
 Memory (byte / word / long)
 
-    load
+    read
     store
 
 Values
@@ -90,10 +90,10 @@ List of instructions and opcodes
     .   01101xxxxxxx AND  16 bit and
     .   01110xxxxxxx OR   16 bit or
     .   01111xxxxxxx XOR  16 bit exclusive or
-    1111ffffxxxxxxxx Operates on data stack (1 values)
+    1111ffffxxxxxxxx Operates on data stack (1 value)
     .   0000xxxxxxxx NEG
     .   0001xxxxxxxx NOT
-    .   0010xxxxxzzz RD   Store one/two/four bytes
+    .   0010xxxxxzzz RD   Read one/two/four bytes
 
 ### Field names
 

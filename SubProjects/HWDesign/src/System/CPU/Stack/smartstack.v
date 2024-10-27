@@ -1,13 +1,15 @@
+// vi: spell
 //
-// Function
-// 000   push   (X X X -> X X X D)
-// 001   d1push (X X A -> X X D)
-// 010   d2push (X B A -> X D)
-// 011   swap   (X B A -> X A B)
-// 100   drop   (X X A -> X X)
-// 101   drop2  (X B A -> X)
-// 110   roll   (C B A -> A C B)
-// 111   peek   (C B A -> C B A)
+//
+// Function  Name   Effect                 Explanation
+// 000       push   (X X X -> X X X D)
+// 001       d1push (X X A -> X X D)       To facilitate 10 negate -> -10
+// 010       d2push (X B A -> X D)         To facilitate 9 2 +  ->  11
+// 011       swap   (X B A -> X A B)
+// 100       drop   (X X A -> X X)
+// 101       drop2  (X B A -> X)
+// 110       roll   (C B A -> A C B)
+// 111       peek   (C B A -> C B A)
 //
 
 module SmartStack #(parameter WIDTH=16, DEPTH=8)

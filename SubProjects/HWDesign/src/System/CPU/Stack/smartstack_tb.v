@@ -1,6 +1,6 @@
-
 //
 //
+// Test bench for the Smart Stack
 //
 //
 
@@ -39,13 +39,28 @@ module SmartStack_TB #(parameter WIDTH=16, DEPTH=8) ();
 
 
     initial begin
+        r_D = 16'b11110000;
         r_rst = 1'b0;
         #3
         r_rst = 1'b1;
         #3
         r_rst = 1'b0;
+        #7
+        r_func = 3'b000;
         r_fetch = 1'b1;
         r_store = 1'b0;
+        #17
+        r_func = 3'b000;
+        r_fetch = 1'b0;
+        r_store = 1'b1;
+        #27
+        r_func = 3'b111;
+        r_fetch = 1'b1;
+        r_store = 1'b0;
+        #37
+        r_func = 3'b111;
+        r_fetch = 1'b0;
+        r_store = 1'b1;
         #100
         $finish;
     end

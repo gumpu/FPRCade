@@ -1,15 +1,30 @@
-## FCPU
+Title
 
-FCPU instruction set Version 0.001
+Stackmaster-16 instruction set Version 0.001
 
-All instructions are 16 Bit.
+## Stackmaster-16
 
-Bits 15 to 12 indicate the instruction category, the remaining bits are used
-to encode the function, stack id, signed/unsigned, and/or values.
+
+Stackmaster-16 is a 16 bit stack based processor. It was designed to make
+it easy to build a Forth system with it.
+
+The processor is little endian.
+
+All instructions are 16 Bit.  Bits 15 to 12 indicate the instruction category,
+the remaining bits are used to encode the function, stack id, signed/unsigned,
+and/or values.
 
 The processor has four stacks for: data, return addresses, control data, and
-temporary values.
-They are indicated by:  D, R, C, and T.
+temporary values.  They are indicated by the letters:  D, R, C, and T.
+
+The stack depths are:
+
+- Data, 8 deep
+- Return, 64 deep
+- Control, 16 deep
+- Temp, 4 deep
+
+
 
 It supports the following arithmetic operations (signed and unsigned): + - / * %
 
@@ -39,6 +54,51 @@ Control: nop halt
 BIF ENTER NOP LEAVE HALT DROP DUP SWAP MOV LDL LDH ADDU ADD MUL MULU EQ ASRU
 ASR LTU LT GTU GT LTEU LTE GTEU GTE LSL LSR STO AND OR XOR NEG NOT RD
 
+
+## Assembly format
+
+An assembly file contains five type of lines:
+
+-1 A remark, this is a line that starts with a ';'
+-2 A label, this a line that starts with a word ending with a ':'
+-3 A directive, this is a line that starts with a '.'
+-4 An empty line, a line with containing only spaces.
+-5 An instruction, a line that start with a word that matches on the
+possible instructions of the Stackmaster-16.
+
+The following is an example
+
+    ; Test
+
+    .code
+        nop
+        ldl d 0x0000
+    label1:
+        ldl d 0x0001
+        add d
+        dup d
+        ldl d 0x000A
+        gt
+        bif label1
+        halt
+    end:
+
+    .str "some string"
+
+
+
+## Terms and definitions
+
+Cell
+
+Instruction
+
+Opcode
+
+Value
+
+Stack
+
 ## Opcode encoding
 
 List of instructions and opcodes
@@ -59,9 +119,9 @@ List of instructions and opcodes
     1001xxxxxxxxxxxx unused
     1010xxxxxxxxxxxx unused
     1011ffffssttxxxx Stack operations
-    .   0000         DROP Drop first cell on ss
-    .   0001         DUP  Duplicate first cell on ss
-    .   0010         SWAP Swap first two cells on ss
+    .   0000         DROP Drop first cell of ss
+    .   0001         DUP  Duplicate first cell of ss
+    .   0010         SWAP Swap first two cells of ss
     .   0011         MOV  Move from ss to tt
     1100ssdddddddddd LDL  Load immediate low 10 bits to ss
     1101ssddddddxxxx LDH  Load immediate high 6 bits to ss
@@ -118,75 +178,179 @@ The meaning of the field names is as follows:
 
 ## Details
 
+Notation:
 
-ADD
+- s1, s2, .., sn  -- signed 16 bit numbers
+- u1, u2, .., un  -- unsigned 16 bit numbers
+- a1, a2, .., an  -- 16 bit address
+- t1, t2, .., tn  -- 16 bit truth value
+- n1, n2, .., nn  -- 16 bits uninterpreted
 
-ADDU
+### ADD - Signed addition
 
-AND
+Signed addition: s3 = s1 + s2
 
-ASR
+(s1 s2 -- s3)
+
+### ADDU - Unsigned addition
+
+Unsigned addition: u3 = u1 + u2
+
+(u1 u2 -- u3)
+
+### AND - Bitwise and
+
+Bitwise and: n3 = n1 & n2
+
+(n1 n2 -- n3)
+
+### ASR - Arithmetical shift right
+
+Arithmetical shift right.
+
+(n1 -- n2)
+
+
+### ASRU - Unsigned arithmetical shift right
 
 ASRU
 
-BIF
+### Branch if false - BIF
 
-DROP  (x: u1 -- x: )
+Branch to a new address if the top value on the data stack has the value false
+(0).  The new address is computed from the current PC and the offset given in
+the instruction.
 
-DUP
+    BIF offset
+
+Where offset is in the range [-2048, 2047]
+
+
+### Drop value - DROP
+
+(x: u1 -- x: )
+
+Drop the top element from the given stack.
+
+
+### Duplicate value - DUP
+
+Duplicate the top element from the given stack.
+
+
+### Enter a subroutine - ENTER
 
 ENTER ( -- r: a1)
 
-EQ   (u1 u2 -- tf)
+    ENTER offset
 
-GT   (u1 u2 -- tf)
 
-GTE  (u1 u2 -- tf)
+### Are two top values equal - EQ
 
-GTEU (u1 u2 -- tf)
+EQ   (u1 u2 -- t1)
 
-GTU  (u1 u2 -- tf)
+GT   (u1 u2 -- t1)
 
-HALT
+GTE  (u1 u2 -- t1)
+
+GTEU (u1 u2 -- t1)
+
+GTU  (u1 u2 -- t1)
+
+### HALT -
 
 LDH  (u2 -- u2)
 
 LDL  (   -- u2)
 
+### LEAVE - Leave a subroutine
+
 LEAVE (r: a1 -- )
+
+
+### LSL - Logical shift left
 
 LSL (u1 -- u2)
 
+### LSL - Logical shift right
+
 LSR (u1 -- u2)
 
-LT  (u1 u2 -- tf)
 
-LTE   (u1 u2 -- tf)
+LT  (s1 s2 -- tf)
+
+LTE   (s1 s2 -- tf)
 
 LTEU  (u1 u2 -- tf)
 
 LTU  (u1 u2 -- tf)
 
+
+## MOV - Move value from one stack to the other
+
 MOV  (x: x1 -- y: x1)
+
+## MUL - Signed multiplication
 
 MUL
 
+## MULU - Unsigned multiplication
+
 MULU
+
+##
 
 NEG (n1 -- n2)
 
+## Do nothing -- NOP
+
 NOP ( -- )
 
-NOT (u1 -- u2)
 
-OR  (u1 u2 -- u3)
+### NOT - Invert bits or truth value
 
-RD  (a1 -- u1)
+NOT:
 
-STO
+(n1 -- n2)
 
-SWAP
+### OR - Bitwise OR
 
-XOR
+Bitwise or: n3 = n1 | n2
+
+(n1 n2 -- n3)
+
+
+### RD - Read n bytes from memory
+
+RD.b  (a1 -- u1)
+
+RD.w  (a1 -- u1)
+
+RD.l  (a1 -- u1 u2)
+
+## STO - Store n bytes in memory
+
+STO.b (n1 a1 -- )
+
+Stores the lower 8 bits of n1 at address a1.
+
+STO.w (n1 a1 -- )
+
+Stores n1 at address a1.
+
+STO.l (n1 n2 a2 -- )
+
+Stores n1 and n2 at addresses a1 and a1+2.
+
+### SWAP - Swap the two top stack elements of the given stack
+
+SWAP (n1 n2 -- n2 n1)
+
+
+### XOR - Exclusive or on two top stack elements
+
+XOR  (n1 n2 -- n3)
+
+
 
 vi: spell spl=en

@@ -1,10 +1,11 @@
-FA = ../fa
+#
+#
 
 all :
-	$(FA) test_001.asm -o test_001.hex
+	echo done
 
 clean :
-	-rm -f a.hex
-	-rm -f test_001.hex
+	make -C CPU clean
+	echo done
 
 # --------------- end of file -----------------------------------------

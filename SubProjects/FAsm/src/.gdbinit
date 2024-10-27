@@ -2,7 +2,7 @@ file ./fa
 
 break 153
 
-set args test.asm
+set args Test/test.asm
 
 tui enable
 

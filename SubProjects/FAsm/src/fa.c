@@ -1,4 +1,4 @@
-/*
+/**
  * Assembler for the FPRCade processor Stackmaster-16
  *
  */
@@ -8,6 +8,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdint.h>
+#include <getopt.h>
 
 #define WORD_BUFFER_SIZE 1024
 #define LINE_BUFFER_SIZE 1024
@@ -15,6 +16,7 @@
 #define MAX_INSTRUCTION_NAME_LENGTH 32
 #define MAX_NUMBER_OF_LABELS 1024
 #define MAX_ERROR_MESSAGE_LENGTH 1024
+#define FA_MAX_OUTPUT_FILENAME_LENGTH 80
 
 /* --------------------------------------------------------------------*/
 
@@ -23,7 +25,7 @@ typedef struct label_location {
     uint16_t location;
 } label_location_t;
 
-/*
+/**
  * Lookup table to match labels to the corresponding
  * memory addresses
  */
@@ -78,31 +80,34 @@ static void assemble(
 
 /* --------------------------------------------------------------------*/
 
-char line_buffer[LINE_BUFFER_SIZE];
-char word_buffer[WORD_BUFFER_SIZE];
-char error_message[MAX_ERROR_MESSAGE_LENGTH];
+static char line_buffer[LINE_BUFFER_SIZE];
+static char error_message[MAX_ERROR_MESSAGE_LENGTH];
 
 /* --------------------------------------------------------------------*/
+
+/**
+ *
+ */
 
 static uint16_t get_stack_id(char c)
 {
     uint16_t id;
     switch (c) {
         case 'D':
-            id = 0b00;
+            id = 0x0;
             break;
         case 'C':
-            id = 0b01;
+            id = 0x1;
             break;
         case 'R':
-            id = 0b10;
+            id = 0x2;
             break;
         case 'T':
-            id = 0b11;
+            id = 0x3;
             break;
         default:
             /* Error, unknown stack */
-            id = 0b1111;
+            id = 0xF;
             break;
     }
     return id;
@@ -125,21 +130,21 @@ static char* skip_word(char *line)
 static char* skip_spaces(char *line)
 {
     char *c;
+    c = line;
     if (*c != '\0') {
-        for (c = line; isspace(*c); c++);
+        for (; isspace(*c); c++);
     } else {
         /* Do not go past the end of a line */
-        c = line;
     }
     return c;
 }
 
-/*
- * Return the first word found in a line of text delimited by the
- * given separator.
+/**
+ * Return the first word found in a line of text delimited by the given
+ * separator.
  *
- * If the word would not fit in the word buffer the routine
- * return an empty string.
+ * If the word would not fit in the word buffer the routine returns an empty
+ * string.
  *
  * Returns the length of the word that was extracted.
  *
@@ -304,7 +309,7 @@ static uint16_t ldl_generator(
         uint16_t value;
         char destination = *c;
         uint16_t bits = get_stack_id(destination);
-        if (bits == 0b111) {
+        if (bits == 0x7) {
             snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                     "%s", "illegal destination");
         } else {
@@ -362,10 +367,9 @@ static uint16_t dup_generator(
         snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                  "%s", "no destination");
     } else {
-        uint16_t value;
         char destination = *c;
         uint16_t bits = get_stack_id(destination);
-        if (bits == 0b111) {
+        if (bits == 0x7) {
             snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                     "%s", "illegal destination");
         } else {
@@ -424,23 +428,39 @@ static instruction_generator_t generators[] = {
 /* --------------------------------------------------------------------*/
 /* Parsers */
 
-static bool is_label(const char* line)
+/**
+ * Does the given line contain a label
+ *
+ * TODO this fails for
+ *
+ *      .str "fakelabel:"
+ *
+ */
+static bool is_label(const char* stripped_line)
 {
-    return strchr(line, ':');
+    return strchr(stripped_line, ':');
 }
 
-static bool is_directive(char* line)
+/**
+ * Does the given line contain a directive.
+ */
+static bool is_directive(char* stripped_line)
 {
-    return line[0] == '.';
+    return stripped_line[0] == '.';
 }
 
-static bool is_instruction(char* line)
+static bool is_instruction(char* stripped_line)
 {
-    return line[0] != '\0';
+    return stripped_line[0] != '\0';
 }
 
-/*
+/**
  * Replace the ';' with a '\0' to remove remarks from lines
+ *
+ * TODO this fails for
+ *
+ *      .str ";"
+ *
  */
 static char* remove_remarks(char *line)
 {
@@ -456,7 +476,7 @@ static char* remove_remarks(char *line)
     return line;
 }
 
-/*
+/**
  * Remove leading and trailing spaces from the line
  * Make everything except strings upper-case.
  */
@@ -542,9 +562,9 @@ static bool parse_instruction(
     return all_ok;
 }
 
-/*
+/**
  * Read the input file twice.
- * In the first fase compute the instruction count (much memory is used) and
+ * In the first fase compute the instruction count (how much memory is used) and
  * the location of all labels.
  *
  * In the second fase use this information to generate a the code.
@@ -571,6 +591,7 @@ static void assemble(
             line = strip_line(line);
 
             if (is_label(line)) {
+                printf("%s\n", line);
                 if (fase == 0) {
                     /* In the first fase we collect label information.  */
                     all_ok = add_label(label_table, line, address);
@@ -611,15 +632,54 @@ static void assemble(
 }
 
 
+static void display_usage(void)
+{
+    printf("%s",
+           "Usage:\n"
+           "   fa <sourcefile> [options]\n"
+           "     -h             This message\n"
+           "     -o <filename>  Output file to use instead of a.hex\n"
+          );
+}
+
+
+
+static void parse_options(int argc, char** argv, char* output_file_name)
+{
+    int c;
+    output_file_name[0] = '\0';
+    while ((c = getopt(argc, argv, "ho:")) != EOF) {
+        switch (c) {
+            case 'h':
+                display_usage();
+                exit(EXIT_SUCCESS);
+                break;
+            case 'o':
+                strncpy(output_file_name, optarg, FA_MAX_OUTPUT_FILENAME_LENGTH);
+                break;
+            default:
+                break;
+        }
+    }
+}
+
 int main(int argc, char** argv)
 {
     FILE* inpf;
     FILE* outpf;
     static label_table_t label_table;
     if (argc > 1) {
-        inpf = fopen(argv[1], "r");
+        char output_file_name[FA_MAX_OUTPUT_FILENAME_LENGTH];
+        parse_options(argc, argv, output_file_name);
+        /* Parse options puts all non options at the end */
+        inpf = fopen(argv[argc-1], "r");
         if (inpf != NULL) {
-            outpf = fopen("a.hex", "w");
+            if (output_file_name[0] != '\0') {
+                printf("%s\n", output_file_name);
+                outpf = fopen(output_file_name, "w");
+            } else {
+                outpf = fopen("a.hex", "w");
+            }
             if (outpf != NULL) {
                 init_label_table(&label_table);
                 assemble(inpf, outpf, &label_table);
@@ -633,8 +693,9 @@ int main(int argc, char** argv)
         }
     } else {
         fprintf(stderr, "Nothing to assemble\n");
-        fprintf(stderr, "Usage: fa <source>\n");
+        fprintf(stderr, "Usage: fa <source-file>\n");
     }
+
     return EXIT_SUCCESS;
 }
 

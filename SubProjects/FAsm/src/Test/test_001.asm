@@ -1,7 +1,12 @@
 ; Test
 ;
-;
-;
+    ; Space should be skipped
+    ; Also for directives
+
+    .str "test"
+
+; Label inside a string
+.str "label1:"
 
 .code
     nop
@@ -16,6 +21,7 @@ label1:
     halt
 end:
 
-.str "Dit is een test"
+; Remark inside a string
+.str "; should not be lost"
 
 ; --------------- end of file ----------------------

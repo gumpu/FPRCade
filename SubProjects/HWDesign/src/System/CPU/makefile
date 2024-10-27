@@ -1,10 +1,9 @@
-FA = ../fa
 
 all :
-	$(FA) test_001.asm -o test_001.hex
+	make -C Stack
 
 clean :
-	-rm -f a.hex
-	-rm -f test_001.hex
+	make -C Stack clean
+	echo done
 
 # --------------- end of file -----------------------------------------

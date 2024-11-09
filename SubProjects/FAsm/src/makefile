@@ -1,9 +1,10 @@
 all : fa
 
 # Memory check
-# CFLAGS=-O0 -g -fsanitize=address -Wall
+# CFLAGS=-O4 -g -fsanitize=address -Wall
+
 # Debug
-CFLAGS=-O0 -g3 -Wall -std=c99 -Wpedantic -fmax-errors=1 -std=c17
+CFLAGS=-O0 -g3 -Wall -std=c17 -Wpedantic -fmax-errors=1 -std=c17
 
 fa : fa.c
 	gcc $(CFLAGS) fa.c -o fa

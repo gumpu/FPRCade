@@ -3,6 +3,7 @@
     ; Space should be skipped
     ; Also for directives
 
+    .str "123"
     .str "test"
 
 ; Label inside a string
@@ -23,5 +24,9 @@ end:
 
 ; Remark inside a string
 .str "; should not be lost"
+
+
+    nop
+    nop
 
 ; --------------- end of file ----------------------

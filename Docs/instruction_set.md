@@ -24,6 +24,7 @@ The stack depths are:
 - Control, 16 deep
 - Temp, 4 deep
 
+These stacks do not reside in memory.
 
 
 It supports the following arithmetic operations (signed and unsigned): + - / * %
@@ -244,12 +245,15 @@ ENTER ( -- r: a1)
 
     ENTER offset
 
-
-### Are two top values equal - EQ
+### EQ -- Are two top values equal
 
 EQ   (u1 u2 -- t1)
 
+### GT - signed greater than
+
 GT   (u1 u2 -- t1)
+
+### GT - signed greater than or equal
 
 GTE  (u1 u2 -- t1)
 
@@ -276,15 +280,21 @@ LSL (u1 -- u2)
 
 LSR (u1 -- u2)
 
+### LT - signed less than
 
 LT  (s1 s2 -- tf)
 
+### LTE - signed less than or equal
+
 LTE   (s1 s2 -- tf)
+
+### LTEU - unsigned less than or equal
 
 LTEU  (u1 u2 -- tf)
 
-LTU  (u1 u2 -- tf)
+### LTU - unsigned less than
 
+LTU  (u1 u2 -- tf)
 
 ## MOV - Move value from one stack to the other
 

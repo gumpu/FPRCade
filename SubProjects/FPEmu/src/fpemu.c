@@ -200,7 +200,8 @@ static void run(struct CPU_Context* c, char* memory)
                     struct Stack* source_stack;
                     uint16_t func = (c->instruction & 0x0F00);
                     uint16_t source_stack_id = (c->instruction & 0x00C0) >> 6;
-                    // TODO uint16_t dest_stack_id = (c->instruction & 0x0030) >> 4;
+                    // TODO
+                    // uint16_t dest_stack_id = (c->instruction & 0x0030) >> 4;
                     source_stack = get_stack(c, source_stack_id);
                     switch (func) {
                         case 0x0000: /* DROP */

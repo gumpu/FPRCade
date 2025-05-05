@@ -63,6 +63,7 @@ typedef uint16_t instruction_callback_type(
 typedef uint16_t directive_callback_type(
     const char line[FA_LINE_BUFFER_SIZE],
     FILE* outpf,
+    FILE* listf,
     uint16_t address, label_table_type* table,
     enum FA_Phase phase, enum FA_ErrorReason* reason);
 
@@ -86,56 +87,102 @@ typedef struct directive_generator {
 /* --------------------------------------------------------------------*/
 
 
+static void report_error(enum FA_ErrorReason reason, char* line, int line_no);
+static uint16_t get_stack_id(char c);
+static bool read_number(const char *line, uint16_t* value);
+static unsigned skip_word(const char line[FA_LINE_BUFFER_SIZE], unsigned n);
+static unsigned skip_spaces(const char line[FA_LINE_BUFFER_SIZE], unsigned n);
 static unsigned get_word(
-        char word[FA_MAX_WORD_SIZE],
-        const char line[FA_LINE_BUFFER_SIZE], char seperator, int max_len);
-
+    char word[FA_MAX_WORD_SIZE],
+    const char line[FA_LINE_BUFFER_SIZE], char seperator, int max_len);
 static void init_label_table(label_table_type* lt);
-static bool find_label(label_table_type* lt,
-        const char* label, uint16_t *address);
-static bool add_label(label_table_type* lt,
-        const char line[FA_LINE_BUFFER_SIZE], uint16_t address);
-static bool check_label(label_table_type* lt,
-        const char line[FA_LINE_BUFFER_SIZE], uint16_t address);
-
-static uint16_t nop_generator(
-    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, FILE* listf,
-    uint16_t address, label_table_type* table);
-static uint16_t halt_generator(
-    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, FILE* listf,
-    uint16_t address, label_table_type* table);
-static uint16_t ldl_generator(
-    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, FILE* listf,
-    uint16_t address, label_table_type* table);
-static uint16_t lt_generator(
-    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, FILE* listf,
-    uint16_t address, label_table_type* table);
-static uint16_t bif_generator(
-    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, FILE* listf,
-    uint16_t address, label_table_type* table);
-
+static bool find_label(
+    label_table_type* lt, const char* label, uint16_t *address);
+static bool add_label(
+    label_table_type* lt,
+    const char line[FA_LINE_BUFFER_SIZE], uint16_t address);
+static bool check_label(
+    label_table_type* lt,
+    const char line[FA_LINE_BUFFER_SIZE],
+    uint16_t address);
 static void emit_code(
-        FILE* outpf, FILE* listf, uint16_t address, uint16_t instruction);
-
-static bool is_label(const char line[FA_LINE_BUFFER_SIZE]);
-static bool is_directive(const char line[FA_LINE_BUFFER_SIZE]);
-static bool is_instruction(const char line[FA_LINE_BUFFER_SIZE]);
+    FILE* outpf, FILE* listf, uint16_t address, uint16_t instruction);
+static uint16_t nop_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+static uint16_t halt_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+static uint16_t ldl_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+static uint16_t lt_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+static uint16_t gt_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+static uint16_t add_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+static uint16_t dup_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+static uint16_t bif_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+static uint16_t dot_str_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_Phase phase, enum FA_ErrorReason* error_reason);
+static uint16_t dot_b_generator(
+    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, FILE* listf, uint16_t address,
+    label_table_type* table,
+    enum FA_Phase  phase, enum FA_ErrorReason* error_reason);
+static uint16_t dot_w_generator(
+    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, FILE* listf, uint16_t address,
+    label_table_type* table,
+    enum FA_Phase  phase, enum FA_ErrorReason* error_reason);
+static uint16_t dot_l_generator(
+    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, FILE* listf, uint16_t address,
+    label_table_type* table,
+    enum FA_Phase  phase, enum FA_ErrorReason* error_reason);
+static uint16_t dot_code_generator(
+    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, FILE* listf, uint16_t address,
+    label_table_type* table,
+    enum FA_Phase  phase, enum FA_ErrorReason* error_reason);
+static uint16_t dot_align_generator(
+    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, FILE* listf, uint16_t address,
+    label_table_type* table,
+    enum FA_Phase  phase, enum FA_ErrorReason* error_reason);
+static bool is_label(const char stripped_line[FA_LINE_BUFFER_SIZE]);
+static bool is_directive(const char stripped_line[FA_LINE_BUFFER_SIZE]);
+static bool is_instruction(const char stripped_line[FA_LINE_BUFFER_SIZE]);
 static void remove_remarks(
-        char remark_less_line[FA_LINE_BUFFER_SIZE],
-        const char line[FA_LINE_BUFFER_SIZE]);
+    char remark_less_line[FA_LINE_BUFFER_SIZE],
+    const char line[FA_LINE_BUFFER_SIZE]);
 static void strip_line(
-        char stripped_line[FA_LINE_BUFFER_SIZE],
-        const char line[FA_LINE_BUFFER_SIZE]);
+    char stripped_line[FA_LINE_BUFFER_SIZE],
+    const char line[FA_LINE_BUFFER_SIZE]);
+static bool parse_directive(
+    char *line, int line_no,
+    uint16_t* address, enum FA_Phase  phase,
+    FILE* outpf, FILE* listf,
+    label_table_type* label_table);
 static bool parse_instruction(
     const char line[FA_LINE_BUFFER_SIZE], int line_no,
     uint16_t* address, enum FA_Phase  phase,
     FILE* outpf,
     FILE* list_outpf,
     label_table_type* label_table);
-
 static void assemble(
-        FILE* inpf, FILE* outpf, FILE* list_outpf,
-        label_table_type* label_table);
+    FILE* inpf, FILE* outpf, FILE* list_outpf, label_table_type* label_table);
+static void display_usage(void);
+static void parse_options(
+    int argc,
+    char** argv,
+    char* output_file_name,
+    char* listing_file_name);
 
 /* --------------------------------------------------------------------*/
 
@@ -327,7 +374,8 @@ static bool add_label(
 
 static bool check_label(
         label_table_type* lt,
-        const char line[FA_LINE_BUFFER_SIZE], uint16_t address)
+        const char line[FA_LINE_BUFFER_SIZE],
+        uint16_t address)
 {
     bool is_ok = true;
     char label[FA_MAX_LABEL_SIZE];
@@ -535,6 +583,9 @@ static instruction_generator_type instruction_generators[] = {
 
 /* --------------------------------------------------------------------*/
 
+// TODO
+// void emit_word(address, value, outpf, listf) {}
+// void emit_bye(address, value, outpf, listf) {}
 
 /**
  * Handles
@@ -556,7 +607,7 @@ static instruction_generator_type instruction_generators[] = {
  */
 static uint16_t dot_str_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, uint16_t address, label_table_type* table,
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
     enum FA_Phase phase, enum FA_ErrorReason* error_reason)
 {
 
@@ -576,6 +627,8 @@ static uint16_t dot_str_generator(
                         ++m;
                     } else {
                         pair = (pair << 8) | (line[i]);
+                        // TODO
+                        // emit_word(address, value, outpf, listf)
                         fprintf(outpf, "%04x %04x\n",
                                 address + bytes_needed - 1,
                                 pair);
@@ -585,6 +638,8 @@ static uint16_t dot_str_generator(
                 }
                 if (m == 1) {
                     pair = (pair << 8);
+                    // TODO
+                    // emit_byte(address, value, outpf, listf)
                     fprintf(outpf, "%04x %04x\n",
                             address + bytes_needed - 1,
                             pair);
@@ -609,46 +664,72 @@ static uint16_t dot_str_generator(
     return address + bytes_needed;
 }
 
+/**
+ * returns new address
+ */
 static uint16_t dot_b_generator(
-    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, uint16_t address,
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address,
     label_table_type* table,
     enum FA_Phase  phase, enum FA_ErrorReason* error_reason)
 {
+    // TODO
+    // emit_byte(address, value, outpf, listf)
     return 0;
 }
 
 static uint16_t dot_w_generator(
-    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, uint16_t address,
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address,
     label_table_type* table,
     enum FA_Phase  phase, enum FA_ErrorReason* error_reason)
 {
+    // TODO
+    // emit_word(address, value, outpf, listf)
     return 0;
 }
 
 static uint16_t dot_l_generator(
-    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, uint16_t address,
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address,
     label_table_type* table,
     enum FA_Phase  phase, enum FA_ErrorReason* error_reason)
 {
+    // TODO
+    // emit_word(address, value, outpf, listf)
+    // emit_word(address, value, outpf, listf)
     return 0;
+}
+
+
+static uint16_t dot_code_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address,
+    label_table_type* table,
+    enum FA_Phase  phase, enum FA_ErrorReason* error_reason)
+{
+    uint16_t new_address = address;
+
+    return new_address;
 }
 
 static uint16_t dot_align_generator(
-    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, uint16_t address,
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address,
     label_table_type* table,
     enum FA_Phase  phase, enum FA_ErrorReason* error_reason)
 {
-    return 0;
-}
+    uint16_t new_address = address;
+    if (address & 0x01) {
+        ++new_address;
+    }
+    if (phase == eFA_Assemble) {
+        // TODO
+        // emit_byte(address, value, outpf, listf)
+    }
 
-static uint16_t dot_code_generator(
-    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, uint16_t address,
-    label_table_type* table,
-    enum FA_Phase  phase, enum FA_ErrorReason* error_reason)
-{
-    return 0;
+    return new_address;
 }
-
 
 static directive_generator_type directive_generators[] = {
     {".STR",   dot_str_generator},
@@ -775,7 +856,7 @@ static void strip_line(
 static bool parse_directive(
     char *line, int line_no,
     uint16_t* address, enum FA_Phase  phase,
-    FILE* outpf,
+    FILE* outpf, FILE* listf,
     label_table_type* label_table)
 {
     bool all_ok = true;
@@ -794,7 +875,7 @@ static bool parse_directive(
             enum FA_ErrorReason error_reason;
             if (strcmp(name, directive_generators[i].directive_name) == 0) {
                 (*address) = directive_generators[i].generator(
-                                 line, outpf, *address,
+                                 line, outpf, listf, *address,
                                  label_table, phase, &error_reason);
                 break;
             }
@@ -873,11 +954,10 @@ static bool parse_instruction(
 }
 
 /**
- * Read the input file twice.
- * In the first phase compute the instruction count (how much memory is used)
- * and the location of all labels.
+ * Read the input file twice.  In the first phase compute the instruction
+ * count (how much memory is used) and the location of all labels.
  *
- * In the second phase use this information to generate a the code.
+ * In the second phase use this information to generate the code.
  */
 
 static void assemble(
@@ -923,7 +1003,7 @@ static void assemble(
             } else if (is_directive(stripped_line_buffer)) {
                 all_ok = parse_directive(
                              stripped_line_buffer, line_no,
-                             &address, phase, outpf, label_table);
+                             &address, phase, outpf, list_outpf, label_table);
             } else if (is_instruction(stripped_line_buffer)) {
                 all_ok = parse_instruction(
                              stripped_line_buffer, line_no,

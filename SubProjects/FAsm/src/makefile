@@ -13,6 +13,7 @@ test :
 	make -C Test
 
 clean :
+	-rm -f a.hex
 	-rm -f fa
 	make -C Test clean
 

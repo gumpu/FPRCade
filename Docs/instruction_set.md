@@ -64,7 +64,7 @@ An assembly file contains five type of lines:
 -2 A label, this a line that starts with a word ending with a ':'
 -3 A directive, this is a line that starts with a '.'
 -4 An empty line, a line with containing only spaces.
--5 An instruction, a line that start with a word that matches on the
+-5 An instruction, a line that start with a word that matches one the
 possible instructions of the Stackmaster-16.
 
 The following is an example

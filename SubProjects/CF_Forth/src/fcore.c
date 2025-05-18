@@ -249,8 +249,6 @@ dataspace_index_t add_variable(
     store8bits(ctx->dataspace, here + n, OPCODE_LEAVE_COLON);
     ++n;
 
-    /* Make 16bit aligned */
-    n += (n & 0x1);
     here = here + n;
     CF_Assert(here < ctx->top);
     store16bits(ctx->dataspace, LOC_WHERE, here);
@@ -270,18 +268,17 @@ dataspace_index_t allign(dataspace_index_t address)
 dataspace_index_t add_word(
         T_Context* ctx,
         dataspace_index_t previous_word,
-        instruction_t instruction,char* name,
+        instruction_t instruction, char* name,
         word_flag_t flags)
 {
     dataspace_index_t here = fetch16bits(ctx->dataspace, LOC_WHERE);
     dataspace_index_t this_word = here;
-    T_DictHeader* header = (T_DictHeader*)(ctx->dataspace+here);
+    T_DictHeader* header = (T_DictHeader*)(ctx->dataspace + here);
 
     uint16_t n = init_header(header, previous_word, name, flags);
     /* Link to the instruction */
     header->semantics = instruction;
-    /* Make 16bit aligned */
-    n += (n & 0x1);
+
     here = here + n;
     CF_Assert(here < ctx->top);
     store16bits(ctx->dataspace, LOC_WHERE, here);
@@ -307,13 +304,13 @@ void fs_init_dictionary(T_Context* ctx)
     prev = add_word(ctx, prev, OPCODE_NOP,     "NOP", F_INSTRUCTION);
     prev = add_word(ctx, prev, OPCODE_JMP,     "JMP", F_INSTRUCTION);
     prev = add_word(ctx, prev, OPCODE_JMP_FALSE, "JMP_FALSE", F_INSTRUCTION);
-    prev = add_word(ctx, prev, OPCODE_BEGIN,   "BEGIN", F_INSTRUCTION|F_IMMEDIATE);
-    prev = add_word(ctx, prev, OPCODE_AGAIN,   "AGAIN", F_INSTRUCTION|F_IMMEDIATE);
-    prev = add_word(ctx, prev, OPCODE_IF,      "IF", F_INSTRUCTION|F_IMMEDIATE);
-    prev = add_word(ctx, prev, OPCODE_ELSE,    "ELSE", F_INSTRUCTION|F_IMMEDIATE);
-    prev = add_word(ctx, prev, OPCODE_THEN,    "THEN", F_INSTRUCTION|F_IMMEDIATE);
-    prev = add_word(ctx, prev, OPCODE_COLON,   ":", F_INSTRUCTION);
-    prev = add_word(ctx, prev, OPCODE_SEMICOLON,  ";", F_INSTRUCTION|F_IMMEDIATE);
+    prev = add_word(ctx, prev, OPCODE_BEGIN, "BEGIN", F_INSTRUCTION|F_IMMEDIATE);
+    prev = add_word(ctx, prev, OPCODE_AGAIN, "AGAIN", F_INSTRUCTION|F_IMMEDIATE);
+    prev = add_word(ctx, prev, OPCODE_IF,    "IF", F_INSTRUCTION|F_IMMEDIATE);
+    prev = add_word(ctx, prev, OPCODE_ELSE,  "ELSE", F_INSTRUCTION|F_IMMEDIATE);
+    prev = add_word(ctx, prev, OPCODE_THEN,  "THEN", F_INSTRUCTION|F_IMMEDIATE);
+    prev = add_word(ctx, prev, OPCODE_COLON, ":", F_INSTRUCTION);
+    prev = add_word(ctx, prev, OPCODE_SEMICOLON, ";", F_INSTRUCTION|F_IMMEDIATE);
     prev = add_word(ctx, prev, OPCODE_PARSE_NAME,  "PARSE-NAME", F_INSTRUCTION);
     prev = add_word(ctx, prev, OPCODE_PREMAIN, "(REMAIN)", F_INSTRUCTION);
     prev = add_word(ctx, prev, OPCODE_PACCEPT, "(ACCEPT)", F_INSTRUCTION);

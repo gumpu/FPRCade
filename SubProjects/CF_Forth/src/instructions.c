@@ -109,8 +109,8 @@ instruction_pointer_t instr_compile(T_Context* ctx)
         store8bits(ctx->dataspace, here, instruction);
         here += 1;
     } else {
-        dataspace_index_t ip = xt + sizeof(T_DictHeader) + entry->name_length;
-        ip = allign(ip);
+        dataspace_index_t ip =
+            xt + sizeof(T_DictHeader) + entry->name_length + 1;
         store8bits(ctx->dataspace, here, OPCODE_ENTER);
         store16bits(ctx->dataspace, here + 1, ip);
         here += 3;
@@ -131,8 +131,8 @@ instruction_pointer_t instr_execute(T_Context* ctx)
         (void)(semantic_table[instruction](ctx));
     } else {
         push(ctx->dataspace, &(ctx->return_stack), ip);
-        ip = xt + sizeof(T_DictHeader) + entry->name_length;
-        ip = allign(ip);
+
+        ip = xt + sizeof(T_DictHeader) + entry->name_length + 1;
     }
     return ip;
 }
@@ -546,10 +546,11 @@ instruction_pointer_t instr_colon(T_Context* ctx)
     header->flags = F_COLONDEF;
     header->name_length = u;
     /* TODO check on name length */
-    strncpy(header->name, source, u);
+    memcpy(header->name, source, u);
+    /* Make it nul terminated */
+    header->name[u] = '\0';
     uint16_t n = sizeof(T_DictHeader);
-    n += u;
-    n++; /* Also count '\0' */
+    n += (u + 1);  /* Also count '\0' */
     here += n;
     /* TODO Check memory overflow (dict full) */
     store16bits(ctx->dataspace, LOC_WHERE, here);

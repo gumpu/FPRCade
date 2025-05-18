@@ -184,8 +184,7 @@ void decompile_dictionary(T_Context* ctx)
         header = (T_DictHeader*)(ctx->dataspace+h);
         if (header->flags & F_COLONDEF) {
             printf("%s (%d)\n", header->name, header->name_length);
-            dataspace_index_t ip = h + sizeof(T_DictHeader) + header->name_length;
-            ip = allign(ip);
+            dataspace_index_t ip = h + sizeof(T_DictHeader) + header->name_length + 1;
             printf("code starts at %04x\n", ip);
             decompile(ctx, ip);
         }

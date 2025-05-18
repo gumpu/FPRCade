@@ -55,7 +55,7 @@ typedef struct DictHeader {
     word_flag_t flags;
     instruction_t semantics;
     uint8_t name_length;  /* excluding the '\0' */
-    char name[];  /* '\0' terminated */
+    char name[];          /* '\0' terminated */
 } T_DictHeader;
 
 typedef struct Stack {

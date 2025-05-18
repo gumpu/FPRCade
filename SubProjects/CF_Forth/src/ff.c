@@ -31,7 +31,7 @@ char* outer_interpreter_code[] = {
             "CR", "75", "79", "EMIT", "EMIT", "CR",
             "(ACCEPT)",
         "ELSE",
-            "PARSE-NAME",  /* ( "<spaces>name<space>" -- c-addr u ) */
+            "PARSE-NAME",  /* ( "<spaces>name<space>" -- c_addr u ) */
             "DUP",         /*    --  c_addr u u */
             "IF",          /*    --  c_addr u */
                 "SWAP",    /*    --  u c_addr */
@@ -201,10 +201,13 @@ int main(int argc, char** argv)
     fs_init_dictionary(&context);
     compile_outer_interpreter(&context);
     if (actions == 0) {
-#if 1
-        set_code(&context, ": TEST1 100 100 + . ; ");
+#if 0
+        set_code(&context, ": TEST 100 100 + . ; ");
+//        set_code(&context, ": ff dup dup + + ; 1 ff");
+//        set_code(&context, ": ff dup dup + + ;");
 #endif
         test(&context);
+        decompile_dictionary(&context);
     } else {
         if (actions & DO_INFO) { info(&context); }
         if (actions & DO_DECOMPILE) { decompile_dictionary(&context); }

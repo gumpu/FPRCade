@@ -21,6 +21,10 @@
 #define FA_MAX_OUTPUT_FILENAME_LENGTH (5*80)
 #define FA_MAX_LISTING_FILENAME_LENGTH (5*80)
 
+#define HEX_MAX_BUFFER_SIZE 16
+
+
+
 /* --------------------------------------------------------------------*/
 enum FA_Phase {
     eFA_Scan = 0,
@@ -191,8 +195,72 @@ static char remark_less_line_buffer[FA_LINE_BUFFER_SIZE];
 static char stripped_line_buffer[FA_LINE_BUFFER_SIZE];
 static char error_message[MAX_ERROR_MESSAGE_LENGTH];
 
+/* For hex file format */
+static uint8_t  hex_byte_buffer[HEX_MAX_BUFFER_SIZE];
+static uint16_t hex_current_address = 0;
+static uint8_t  hex_current_byte = 0;
+
 /* --------------------------------------------------------------------*/
 
+int hex_write_data_bytes(
+        FILE* outpf, uint16_t address, uint8_t* bytes, uint8_t n)
+{
+    int result;
+    uint8_t checksum = 0;
+    checksum += n;
+    checksum += (uint8_t)((address) & 0xFF);
+    checksum += (uint8_t)(address >> 8);
+    result = fprintf(outpf, ":%02X%04X%02X", n, address, 0x00);
+    for (uint8_t i = 0; (i < n) && (result > 0); ++i) {
+        checksum += bytes[i];
+        result = fprintf(outpf, "%02X", bytes[i]);
+    }
+    if (result > 0) {
+        checksum = ~(checksum) + 1;
+        result = fprintf(outpf, "%02X\n", checksum);
+    }
+    return result;
+}
+
+int hex_write_end_of_file(FILE* outpf)
+{
+    return fprintf(outpf, ":00000001FF\n");
+}
+
+int hex_set_start_address(uint16_t address)
+{
+    hex_current_address = address;
+    hex_current_byte = 0;
+    return address;
+}
+
+int hex_push_byte(FILE* outpf, uint8_t byte)
+{
+    int result = 0;
+    hex_byte_buffer[hex_current_byte] = byte;
+    hex_current_byte++;
+    if (hex_current_byte == HEX_MAX_BUFFER_SIZE) {
+        result = hex_write_data_bytes(
+                outpf, hex_current_address,
+                hex_byte_buffer, HEX_MAX_BUFFER_SIZE);
+        hex_current_address += HEX_MAX_BUFFER_SIZE;
+        hex_current_byte = 0;
+    }
+    return result;
+}
+
+int hex_flush(FILE* outpf)
+{
+    int result = 0;
+    if (hex_current_byte > 0) {
+        result = hex_write_data_bytes(
+                outpf, hex_current_address,
+                hex_byte_buffer, hex_current_byte);
+    }
+    return result;
+}
+
+/* --------------------------------------------------------------------*/
 
 /**
  * Error message table based on FA_ErrorReason
@@ -223,22 +291,22 @@ static uint16_t get_stack_id(char c)
 {
     uint16_t id;
     switch (c) {
-    case 'D':
-        id = 0x0;
-        break;
-    case 'C':
-        id = 0x1;
-        break;
-    case 'R':
-        id = 0x2;
-        break;
-    case 'T':
-        id = 0x3;
-        break;
-    default:
-        /* Error, unknown stack */
-        id = 0xF;
-        break;
+        case 'D':
+            id = 0x0;
+            break;
+        case 'C':
+            id = 0x1;
+            break;
+        case 'R':
+            id = 0x2;
+            break;
+        case 'T':
+            id = 0x3;
+            break;
+        default:
+            /* Error, unknown stack */
+            id = 0xF;
+            break;
     }
     return id;
 }
@@ -421,7 +489,10 @@ static bool check_label(
 static void emit_code(
         FILE* outpf, FILE* listf, uint16_t address, uint16_t instruction)
 {
-    fprintf(outpf, "%04X %04X\n", address, instruction);
+    uint8_t msb = (uint8_t)(instruction >> 8);
+    uint8_t lsb = (uint8_t)(instruction & 0xFF);
+    hex_push_byte(outpf, lsb);
+    hex_push_byte(outpf, msb);
     if (listf) {
         fprintf(listf, ">\t%04X %04X\n", address, instruction);
     }
@@ -619,37 +690,12 @@ static uint16_t dot_str_generator(
         i = skip_spaces(line, 4);
         if (line[i] == '"') {
             if (phase == eFA_Assemble) {
-                uint16_t pair = 0U;
-                unsigned m = 0U;
                 for (++i ; (line[i] != '\0') && (line[i] != '"'); ++i) {
-                    if (m == 0) {
-                        pair = line[i];
-                        ++m;
-                    } else {
-                        pair = (pair << 8) | (line[i]);
-                        // TODO
-                        // emit_word(address, value, outpf, listf)
-                        fprintf(outpf, "%04x %04x\n",
-                                address + bytes_needed - 1,
-                                pair);
-                        m = 0;
-                    }
-                    bytes_needed++;
-                }
-                if (m == 1) {
-                    pair = (pair << 8);
-                    // TODO
-                    // emit_byte(address, value, outpf, listf)
-                    fprintf(outpf, "%04x %04x\n",
-                            address + bytes_needed - 1,
-                            pair);
+                    hex_push_byte(outpf, line[i]);
                     bytes_needed++;
                 }
             } else {
                 for (++i ; (line[i] != '\0') && (line[i] != '"'); ++i) {
-                    bytes_needed++;
-                }
-                if (bytes_needed & 1) {
                     bytes_needed++;
                 }
             }
@@ -975,6 +1021,7 @@ static void assemble(
         rewind(inpf);
         line_no = 1;
         address = 0x0000;
+        hex_set_start_address(address);
         line = fgets(line_buffer, FA_LINE_BUFFER_SIZE, inpf);
 
         while ((line != NULL) && all_ok) {
@@ -1027,6 +1074,9 @@ static void assemble(
         fprintf(stderr, "Error in line %d\n", line_no);
         fprintf(stderr, "%s\n", error_message);
         fprintf(stderr, "%s\n", line_buffer);
+    } else {
+        hex_flush(outpf);
+        hex_write_end_of_file(outpf);
     }
 }
 

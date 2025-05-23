@@ -129,6 +129,9 @@ static uint16_t gt_generator(
 static uint16_t add_generator(
     const char line[FA_LINE_BUFFER_SIZE],
     FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+static uint16_t neg_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
 static uint16_t dup_generator(
     const char line[FA_LINE_BUFFER_SIZE],
     FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
@@ -585,6 +588,14 @@ static uint16_t add_generator(
     return address + 2;
 }
 
+static uint16_t neg_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table)
+{
+    emit_code(outpf, listf, address, 0xf000);
+    return address + 2;
+}
+
 static uint16_t dup_generator(
     const char line[FA_LINE_BUFFER_SIZE],
     FILE* outpf, FILE* listf, uint16_t address, label_table_type* table)
@@ -641,6 +652,7 @@ static uint16_t bif_generator(
 }
 
 static instruction_generator_type instruction_generators[] = {
+    {"NEG",  neg_generator,  2},
     {"ADD",  add_generator,  2},
     {"DUP",  dup_generator,  2},
     {"NOP",  nop_generator,  2},

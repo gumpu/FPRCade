@@ -50,7 +50,7 @@ struct CPU_Context {
     uint16_t instruction;
 };
 
-static char* memory = NULL;
+static uint8_t* memory = NULL;
 
 /* --------------------------------------------------------------------*/
 
@@ -62,7 +62,12 @@ static uint16_t pop(
     struct CPU_Context* c,
     struct Stack* s);
 static void cpu_reset(struct CPU_Context* c);
-static void run(struct CPU_Context* c, char* memory);
+static uint16_t fetch_instruction(
+    uint8_t* memory,
+    uint16_t pc);
+static void run(struct CPU_Context* c, uint8_t* memory);
+static uint8_t hex_get_byte(char* line, unsigned n);
+static bool load_hex(char* filename, uint8_t* memory);
 
 /* --------------------------------------------------------------------*/
 
@@ -141,16 +146,33 @@ struct Stack* get_stack(struct CPU_Context* c, uint16_t stack_id)
     return stack;
 }
 
+static uint16_t fetch_instruction(
+        uint8_t* memory,
+        uint16_t pc)
+{
+    uint8_t msb;
+    uint8_t lsb;
+    uint16_t instruction;
+
+    lsb = *(memory + pc);
+    msb = *(memory + pc + 1);
+
+    instruction = msb;
+    instruction = (instruction << 8) + lsb;
+
+    return instruction;
+}
+
 
 /*
  * run the processor
  */
 
-static void run(struct CPU_Context* c, char* memory)
+static void run(struct CPU_Context* c, uint8_t* memory)
 {
     printf("Running\n");
     while(c->keep_going) {
-        c->instruction = *(uint16_t*)(memory + c->pc);
+        c->instruction = fetch_instruction(memory, c->pc);
 
         uint16_t group = (c->instruction & 0xF000);
         printf("%04x %04x\n", c->pc, c->instruction);
@@ -288,15 +310,25 @@ static void run(struct CPU_Context* c, char* memory)
     printf("Processor halted\n");
     printf("ExceptionCode: %d (%s)\n",
             c->exception, exception_descriptions[c->exception]);
-    printf("Last instruction: %04X\n", c->instruction);
+    printf("Last instruction: 0x%04X\n", c->instruction);
+}
+
+
+static uint8_t hex_get_byte(char* line, unsigned n)
+{
+    char c1 = line[n];
+    char c2 = line[n+1];
+    uint8_t u1 = (uint8_t)((c1 > '9') ? (c1 - 'A' + 10) : (c1 - '0'));
+    uint8_t u2 = (uint8_t)((c2 > '9') ? (c2 - 'A' + 10) : (c2 - '0'));
+    return u1*16+u2;
 }
 
 #define INPF_BUFFER_SIZE 1024
 
-/*
+/**
  * Load a with fasm assembled file
  */
-bool load_hex(char* filename, char* memory)
+static bool load_hex(char* filename, uint8_t* memory)
 {
     bool ok;
     FILE *inpf;
@@ -308,19 +340,40 @@ bool load_hex(char* filename, char* memory)
     } else {
         char buffer[INPF_BUFFER_SIZE + 2];
         char* line;
+        ok = true;
         line = fgets(buffer, INPF_BUFFER_SIZE, inpf);
         while (line != NULL) {
-            uint16_t* address;
-            int location;
-            int value;
-            printf("%s", line);
-            sscanf(line, "%x %x", &location, &value);
-            // printf("%x %x\n", location, value);
-            address = (uint16_t*)(memory + location);
-            *address = (uint16_t)value;
+            uint8_t* address;
+            uint16_t location;
+            if (line[0] != ':') {
+                /* Ignore */
+            } else {
+                int n = strlen(line);
+                if (n < 11) {
+                    fprintf(stderr, "line in .hex is too short\n");
+                    break;
+                    ok = false;
+                } else {
+                    uint8_t count = hex_get_byte(line, 1);
+                    location = hex_get_byte(line, 3);
+                    location = location << 8;
+                    location += hex_get_byte(line, 5);
+                    uint8_t type = hex_get_byte(line, 7);
+                    if (type == 0) {
+                        address = (memory + location);
+                        for (uint8_t i = 0; i < count; ++i) {
+                            uint8_t value = hex_get_byte(line, 9 + 2*i);
+                            address[i] = (uint16_t)value;
+                        }
+                    } else if (type == 1) {
+                        /* End of data */
+                        break;
+                    }
+                }
+            }
             line = fgets(buffer, INPF_BUFFER_SIZE, inpf);
         }
-        ok = true;
+        fclose(inpf);
     }
     printf("Loading completed\n");
     return ok;
@@ -329,7 +382,7 @@ bool load_hex(char* filename, char* memory)
 int main(int argc, char** argv)
 {
     struct CPU_Context c;
-    memory = (char *)malloc(MEMORY_SIZE);
+    memory = (uint8_t *)malloc(MEMORY_SIZE);
 
     if (memory == NULL) {
         printf("Memory allocation failed\n");

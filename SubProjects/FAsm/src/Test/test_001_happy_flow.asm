@@ -4,6 +4,7 @@
     ; Also for directives
 
     .str "123"
+    .align l
     .str "test"
 
 ; Label inside a string
@@ -19,14 +20,21 @@ label1:
     ldl d 0x000A
     gt
     bif label1
+    enter routine2
     halt
 end:
 
 ; Remark inside a string
 .str "; should not be lost"
 
+.align w
+.w 10
 
+.align l
+routine2:
     nop
     nop
+    neg d
+    leave
 
 ; --------------- end of file ----------------------

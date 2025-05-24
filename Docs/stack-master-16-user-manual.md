@@ -85,8 +85,11 @@ The following is an example
 
 ### Align
 
-.align w
-.align l
+Align the next address to be word or long aligned.
+Examples:
+
+    .align w
+    .align l
 
 
 ## Terms and definitions

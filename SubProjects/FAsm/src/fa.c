@@ -23,8 +23,6 @@
 
 #define HEX_MAX_BUFFER_SIZE 16
 
-
-
 /* --------------------------------------------------------------------*/
 enum FA_Phase {
     eFA_Scan = 0,
@@ -37,6 +35,8 @@ enum FA_ErrorReason {
     eFA_Unknown_Directive,
     eFA_Syntax_Error,
     eFA_DirectiveTooLong,
+    eFA_AddressError,
+    /* Should be the last entry */
     eFA_NumberOfErrors
 };
 /* --------------------------------------------------------------------*/
@@ -62,7 +62,8 @@ typedef uint16_t instruction_callback_type(
     const char line[FA_LINE_BUFFER_SIZE],
     FILE* outpf,
     FILE* listf,
-    uint16_t address, label_table_type* table);
+    uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reaso);
 
 typedef uint16_t directive_callback_type(
     const char line[FA_LINE_BUFFER_SIZE],
@@ -91,6 +92,7 @@ typedef struct directive_generator {
 /* --------------------------------------------------------------------*/
 
 
+
 static void report_error(enum FA_ErrorReason reason, char* line, int line_no);
 static uint16_t get_stack_id(char c);
 static bool read_number(const char *line, uint16_t* value);
@@ -111,55 +113,77 @@ static bool check_label(
     uint16_t address);
 static void emit_code(
     FILE* outpf, FILE* listf, uint16_t address, uint16_t instruction);
+static uint16_t leave_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
+static uint16_t enter_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
 static uint16_t nop_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
 static uint16_t halt_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
 static uint16_t ldl_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
 static uint16_t lt_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
 static uint16_t gt_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
 static uint16_t add_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
 static uint16_t neg_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
 static uint16_t dup_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
 static uint16_t bif_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table);
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
 static uint16_t dot_str_generator(
     const char line[FA_LINE_BUFFER_SIZE],
     FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
     enum FA_Phase phase, enum FA_ErrorReason* error_reason);
 static uint16_t dot_b_generator(
-    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, FILE* listf, uint16_t address,
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address,
     label_table_type* table,
     enum FA_Phase  phase, enum FA_ErrorReason* error_reason);
 static uint16_t dot_w_generator(
-    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, FILE* listf, uint16_t address,
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address,
     label_table_type* table,
     enum FA_Phase  phase, enum FA_ErrorReason* error_reason);
 static uint16_t dot_l_generator(
-    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, FILE* listf, uint16_t address,
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address,
     label_table_type* table,
     enum FA_Phase  phase, enum FA_ErrorReason* error_reason);
 static uint16_t dot_code_generator(
-    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, FILE* listf, uint16_t address,
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address,
     label_table_type* table,
     enum FA_Phase  phase, enum FA_ErrorReason* error_reason);
 static uint16_t dot_align_generator(
-    const char line[FA_LINE_BUFFER_SIZE], FILE* outpf, FILE* listf, uint16_t address,
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address,
     label_table_type* table,
     enum FA_Phase  phase, enum FA_ErrorReason* error_reason);
 static bool is_label(const char stripped_line[FA_LINE_BUFFER_SIZE]);
@@ -193,6 +217,7 @@ static void parse_options(
 
 /* --------------------------------------------------------------------*/
 
+
 static char line_buffer[FA_LINE_BUFFER_SIZE];
 static char remark_less_line_buffer[FA_LINE_BUFFER_SIZE];
 static char stripped_line_buffer[FA_LINE_BUFFER_SIZE];
@@ -225,10 +250,31 @@ int hex_write_data_bytes(
     return result;
 }
 
+/**
+ * Write an end of records
+ */
+
 int hex_write_end_of_file(FILE* outpf)
 {
     return fprintf(outpf, ":00000001FF\n");
 }
+
+/**
+ * @brief Set the start address to be used for
+ * all following hex_push_byte() and hex_flush()
+ * calls.
+ *
+ * hex_set_start_address(0xC000)
+ * hex_push_byte(outpf, 0xA0))
+ * hex_push_byte(outpf, 0xB0))
+ * hex_push_byte(outpf, 0xF0))
+ *
+ * Will put 0xA0 at 0xC000,
+ * 0xB0 at 0xC001 and 0xF0 at 0xC002
+ *
+ * @param[in] adddres   address to be used
+ * @result Nothing
+ */
 
 int hex_set_start_address(uint16_t address)
 {
@@ -259,6 +305,8 @@ int hex_flush(FILE* outpf)
         result = hex_write_data_bytes(
                 outpf, hex_current_address,
                 hex_byte_buffer, hex_current_byte);
+        hex_current_address += hex_current_byte;
+        hex_current_byte = 0;
     }
     return result;
 }
@@ -274,6 +322,7 @@ static char* error_reason_text [] = {
     "Unknown directive",
     "Syntax Error",
     "Directive is too long",
+    "Address error",
 
     "INTERNAL ERROR"
 };
@@ -321,12 +370,29 @@ static bool read_number(const char *line, uint16_t* value)
     return true;
 }
 
+/**
+ * Given a line of text and the position n in that line of text
+ * skip all characters until a space charter is found.
+ *
+ * Returns the index to the space character or the index
+ * to the end of the line in case no spaces were found.
+ *
+ * Note: Does not skip leading spaces.
+ */
 static unsigned skip_word(const char line[FA_LINE_BUFFER_SIZE], unsigned n)
 {
     unsigned i;
     for (i = n; (line[i] != '\0') && !isspace(line[i]); ++i);
     return i;
 }
+
+/**
+ * Given a line of text and the position n in that line of text skip all space
+ * characters until a non space character is found.
+ *
+ * Returns the index to the nonspace character or the index
+ * to the end of the line in case only spaces were found.
+ */
 
 static unsigned skip_spaces(const char line[FA_LINE_BUFFER_SIZE], unsigned n)
 {
@@ -503,9 +569,59 @@ static void emit_code(
 
 /* Generators */
 
+static uint16_t leave_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0x8100);
+    return address + 2;
+}
+
+static uint16_t enter_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    uint16_t new_address = address;
+    unsigned i = 0;
+    i = skip_word(line, i);
+    i = skip_spaces(line, i);
+
+    if (line[i] == '\0') {
+        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                "%s", "missing label");
+        *reason = eFA_Syntax_Error;
+    } else {
+        uint16_t location;
+        if (find_label(table, &(line[i]), &location)) {
+            if (location & 0x03) {
+                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                        "destination address, %s (%04x), is not aligned",
+                        &(line[i]), location);
+                *reason = eFA_AddressError;
+            } else {
+                uint16_t instruction;
+                instruction = 0x4000;
+                location = (location >> 2);
+                instruction |= location & 0x3FFF;
+                emit_code(outpf, listf, address, instruction);
+                new_address += 2;
+            }
+        } else {
+            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                     "%s", "label not found");
+            *reason = eFA_Syntax_Error;
+        }
+    }
+
+    return new_address;
+}
+
 static uint16_t nop_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table)
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
 {
     emit_code(outpf, listf, address, 0x8000);
     return address + 2;
@@ -513,7 +629,8 @@ static uint16_t nop_generator(
 
 static uint16_t halt_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table)
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
 {
     emit_code(outpf, listf, address, 0x8200);
     return address + 2;
@@ -527,7 +644,8 @@ static uint16_t halt_generator(
  */
 static uint16_t ldl_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table)
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
 {
     uint16_t new_address = address;
     unsigned i = 0;
@@ -566,7 +684,8 @@ static uint16_t ldl_generator(
 
 static uint16_t lt_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table)
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
 {
     emit_code(outpf, listf, address, 0xe290);
     return address + 2;
@@ -574,7 +693,8 @@ static uint16_t lt_generator(
 
 static uint16_t gt_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table)
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
 {
     emit_code(outpf, listf, address, 0xe310);
     return address + 2;
@@ -582,7 +702,8 @@ static uint16_t gt_generator(
 
 static uint16_t add_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table)
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
 {
     emit_code(outpf, listf, address, 0xe010);
     return address + 2;
@@ -590,7 +711,8 @@ static uint16_t add_generator(
 
 static uint16_t neg_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table)
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
 {
     emit_code(outpf, listf, address, 0xf000);
     return address + 2;
@@ -598,7 +720,8 @@ static uint16_t neg_generator(
 
 static uint16_t dup_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table)
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
 {
     uint16_t new_address = address;
     unsigned i = 0;
@@ -624,7 +747,8 @@ static uint16_t dup_generator(
 
 static uint16_t bif_generator(
     const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table)
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
 {
     uint16_t new_address = address;
     unsigned i = 0;
@@ -661,6 +785,10 @@ static instruction_generator_type instruction_generators[] = {
     {"LT",   lt_generator,   2},
     {"GT",   gt_generator,   2},
     {"BIF",  bif_generator,  2},
+    {"LEAVE", leave_generator, 2},
+    {"ENTER", enter_generator, 2},
+
+    /* Should always be the last one */
     {NULL, NULL}
 };
 
@@ -777,13 +905,34 @@ static uint16_t dot_align_generator(
     label_table_type* table,
     enum FA_Phase  phase, enum FA_ErrorReason* error_reason)
 {
-    uint16_t new_address = address;
-    if (address & 0x01) {
-        ++new_address;
+    unsigned i;
+    uint16_t new_address;
+    uint16_t delta;
+
+    i = skip_word(line, 0);
+    i = skip_spaces(line, i);
+
+    switch (line[i]) {
+        case 'W':
+            delta = (address & 0x01) ? (2 - (address & 0x01)) : 0;
+            break;
+        case 'L':
+            delta = (address & 0x03) ? (4 - (address & 0x03)) : 0;
+            break;
+        default:
+            delta = 0;
+            snprintf(error_message,
+                    MAX_ERROR_MESSAGE_LENGTH, "%s", "Align needs a W or L");
+            *error_reason = eFA_Syntax_Error;
     }
+
+    new_address = address + delta;
+
     if (phase == eFA_Assemble) {
-        // TODO
-        // emit_byte(address, value, outpf, listf)
+        for (i = 0; i < delta; ++i) {
+            hex_push_byte(outpf, 0xAA);
+        }
+        hex_flush(outpf);
     }
 
     return new_address;
@@ -873,8 +1022,8 @@ static void remove_remarks(
 }
 
 /**
- * Remove leading and trailing spaces from the line
- * Make everything except strings upper-case.
+ * Remove leading and trailing spaces from the line.
+ * Make everything, except strings, upper-case.
  */
 static void strip_line(
         char stripped_line[FA_LINE_BUFFER_SIZE],
@@ -928,13 +1077,14 @@ static bool parse_directive(
         all_ok = false;
     } else {
         unsigned i;
+        enum FA_ErrorReason error_reason = eFA_AllOk;
         for (i = 0; directive_generators[i].generator != NULL; i++)
         {
-            enum FA_ErrorReason error_reason;
             if (strcmp(name, directive_generators[i].directive_name) == 0) {
                 (*address) = directive_generators[i].generator(
                                  line, outpf, listf, *address,
                                  label_table, phase, &error_reason);
+                all_ok = (error_reason == eFA_AllOk);
                 break;
             }
         }
@@ -982,20 +1132,30 @@ static bool parse_instruction(
                 }
             }
         } else {
+            enum FA_ErrorReason error_reason = eFA_AllOk;
+
             for (i = 0; instruction_generators[i].generator != NULL; i++)
             {
                 char* instr_name = instruction_generators[i].instruction_name;
                 if (strcmp(name, instr_name) == 0) {
                     uint16_t new_address;
-                    uint16_t delta;
+
                     new_address = instruction_generators[i].generator(
                                       line, outpf, list_outpf,
-                                      *address, label_table);
-                    delta = new_address - (*address);
-                    if (delta != instruction_generators[i].byte_count) {
-                        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
-                                 "%s", "internal error");
+                                      *address, label_table,
+                                      &error_reason);
+
+                    if (error_reason != eFA_AllOk) {
                         all_ok = false;
+                    } else {
+                        uint16_t delta;
+
+                        delta = new_address - (*address);
+                        if (delta != instruction_generators[i].byte_count) {
+                            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                                     "%s", "internal error");
+                            all_ok = false;
+                        }
                     }
                     *address = new_address;
                     break;
@@ -1032,8 +1192,10 @@ static void assemble(
 
         rewind(inpf);
         line_no = 1;
+
         address = 0x0000;
         hex_set_start_address(address);
+
         line = fgets(line_buffer, FA_LINE_BUFFER_SIZE, inpf);
 
         while ((line != NULL) && all_ok) {
@@ -1048,7 +1210,6 @@ static void assemble(
             }
 
             if (is_label(stripped_line_buffer)) {
-                printf("label\n");
                 if (phase == eFA_Scan) {
                     /* In the first phase we collect label information.  */
                     all_ok = add_label(
@@ -1084,8 +1245,8 @@ static void assemble(
 
     if (!all_ok) {
         fprintf(stderr, "Error in line %d\n", line_no);
-        fprintf(stderr, "%s\n", error_message);
         fprintf(stderr, "%s\n", line_buffer);
+        fprintf(stderr, "%s\n", error_message);
     } else {
         hex_flush(outpf);
         hex_write_end_of_file(outpf);
@@ -1162,7 +1323,6 @@ int main(int argc, char** argv)
             bool all_ok = true;
 
             if (listing_file_name[0] != '\0') {
-                printf("%s\n", listing_file_name);
                 list_outpf = fopen(listing_file_name, "w");
                 if (list_outpf == NULL) {
                     perror("output fopen:");
@@ -1188,17 +1348,11 @@ int main(int argc, char** argv)
                 assemble(inpf, outpf, list_outpf, &label_table);
             }
 
-            if (inpf != NULL) {
-                fclose(inpf);
-            }
+            if (inpf != NULL) { fclose(inpf); }
 
-            if (list_outpf != NULL) {
-                fclose(list_outpf);
-            }
+            if (list_outpf != NULL) { fclose(list_outpf); }
 
-            if (outpf != NULL) {
-                fclose(outpf);
-            }
+            if (outpf != NULL) { fclose(outpf); }
 
         } else {
             perror("input fopen:");

@@ -154,6 +154,7 @@ static uint16_t fetch_instruction(
     uint8_t lsb;
     uint16_t instruction;
 
+    /* little endian */
     lsb = *(memory + pc);
     msb = *(memory + pc + 1);
 
@@ -177,6 +178,18 @@ static void run(struct CPU_Context* c, uint8_t* memory)
         uint16_t group = (c->instruction & 0xF000);
         printf("%04x %04x\n", c->pc, c->instruction);
         switch (group) {
+            case 0x4000:
+            case 0x5000:
+            case 0x6000:
+            case 0x7000:
+                {
+                    /* ENTER */
+                    struct Stack* stack = &(c->return_stack);
+                    uint16_t address = ((c->instruction & 0x3FFF) << 2);
+                    push(c, stack, (c->pc) + 2);
+                    c->pc = address;
+                }
+                break;
             case 0x1000:
                 {
                     uint16_t truth_value;
@@ -205,6 +218,12 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                     switch (func) {
                         case 0x0000: /* NOP */
                             (c->pc) += 2;
+                            break;
+                        case 0x0100: /* LEAVE */
+                            {
+                                struct Stack* stack = &(c->return_stack);
+                                c->pc = pop(c, stack);
+                            }
                             break;
                         case 0x0200: /* HALT */
                             (c->pc) += 2;
@@ -327,6 +346,10 @@ static uint8_t hex_get_byte(char* line, unsigned n)
 
 /**
  * Load a with fasm assembled file
+ *
+ * Return true the file was OK and was loaded.
+ *
+ * Returns false otherwise
  */
 static bool load_hex(char* filename, uint8_t* memory)
 {
@@ -351,8 +374,8 @@ static bool load_hex(char* filename, uint8_t* memory)
                 int n = strlen(line);
                 if (n < 11) {
                     fprintf(stderr, "line in .hex is too short\n");
-                    break;
                     ok = false;
+                    break;
                 } else {
                     uint8_t count = hex_get_byte(line, 1);
                     location = hex_get_byte(line, 3);
@@ -375,7 +398,7 @@ static bool load_hex(char* filename, uint8_t* memory)
         }
         fclose(inpf);
     }
-    printf("Loading completed\n");
+
     return ok;
 }
 
@@ -391,11 +414,14 @@ int main(int argc, char** argv)
 
         if (argc > 1) {
             printf("%s\n", argv[1]);
-            load_hex(argv[1], memory);
+            if (load_hex(argv[1], memory)) {
+                printf("Loading completed\n");
+                cpu_reset(&c);
+                run(&c, memory);
+            } else {
+                fprintf(stderr, "could not load program\n");
+            }
         }
-
-        cpu_reset(&c);
-        run(&c, memory);
 
         free(memory);
     }

@@ -8,11 +8,9 @@ Stackmaster-16 instruction set Version 0.001
 Stackmaster-16 is a 16 bit stack based processor. It was designed to make
 it easy to build a Forth system with it.
 
-The processor is little endian.
-
-All instructions are 16 Bit.  Bits 15 to 12 indicate the instruction category,
-the remaining bits are used to encode the function, stack id, signed/unsigned,
-and/or values.
+The processor is little endian.  All instructions are 16 Bit.  Bits 15 to 12
+indicate the instruction category, the remaining bits are used to encode the
+function, stack id, signed/unsigned, and/or values.
 
 The processor has four stacks for: data, return addresses, control data, and
 temporary values.  They are indicated by the letters:  D, R, C, and T.
@@ -25,7 +23,6 @@ The stack depths are:
 - Temp, 4 deep
 
 These stacks do not reside in memory.
-
 
 It supports the following arithmetic operations (signed and unsigned): + - / * %
 
@@ -65,7 +62,7 @@ An assembly file contains five type of lines:
 -3 A directive, this is a line that starts with a '.'
 -4 An empty line, a line with containing only spaces.
 -5 An instruction, a line that start with a word that matches one the
-possible instructions of the Stackmaster-16.
+   possible instructions of the Stackmaster-16.
 
 The following is an example
 
@@ -86,6 +83,10 @@ The following is an example
 
     .str "some string"
 
+### Align
+
+.align w
+.align l
 
 
 ## Terms and definitions
@@ -112,7 +113,7 @@ List of instructions and opcodes
     0001dddddddddddd BIF     branch if false
     0010xxxxxxxxxxxx unused
     0011xxxxxxxxxxxx unused
-    01dddddddddddddd ENTER
+    01dddddddddddddd ENTER   Enter a subroutine
     1000ffffxxxxxxxx
     .   0000xxxxxxxx NOP
     .   0001xxxxxxxx LEAVE
@@ -216,7 +217,10 @@ Arithmetical shift right.
 
 ASRU
 
+
 ### Branch if false - BIF
+
+Encoding: 0001dddddddddddd
 
 Branch to a new address if the top value on the data stack has the value false
 (0).  The new address is computed from the current PC and the offset given in
@@ -243,7 +247,11 @@ Duplicate the top element from the given stack.
 
 ENTER ( -- r: a1)
 
-    ENTER offset
+    ENTER location
+
+Location is a 14 bit value. This values is multiplied by 4 to compute the
+destination address.  The value of PC + 2 is pushed to the return stack and
+destination address is loaded into the PC.
 
 ### EQ -- Are two top values equal
 
@@ -253,9 +261,11 @@ EQ   (u1 u2 -- t1)
 
 GT   (u1 u2 -- t1)
 
-### GT - signed greater than or equal
+### GTE - signed greater than or equal
 
 GTE  (u1 u2 -- t1)
+
+### GTE - unsigned greater than or equal
 
 GTEU (u1 u2 -- t1)
 
@@ -263,7 +273,12 @@ GTU  (u1 u2 -- t1)
 
 ### HALT -
 
+
+### LDH -
+
 LDH  (u2 -- u2)
+
+### LDL -
 
 LDL  (   -- u2)
 
@@ -271,6 +286,7 @@ LDL  (   -- u2)
 
 LEAVE (r: a1 -- )
 
+Pop the top value from the return stack and loads this value into the PC.
 
 ### LSL - Logical shift left
 
@@ -308,7 +324,7 @@ MUL
 
 MULU
 
-##
+## NEG - 2 Complements
 
 NEG (n1 -- n2)
 
@@ -346,11 +362,11 @@ Stores the lower 8 bits of n1 at address a1.
 
 STO.w (n1 a1 -- )
 
-Stores n1 at address a1.
+Stores n1 at address locations a1 and a1+1.
 
-STO.l (n1 n2 a2 -- )
+STO.l (n1 n2 a1 -- )
 
-Stores n1 and n2 at addresses a1 and a1+2.
+Stores n1 and n2 at addresses a1 and a1+1, a1+2, and a1+3.
 
 ### SWAP - Swap the two top stack elements of the given stack
 
@@ -360,7 +376,5 @@ SWAP (n1 n2 -- n2 n1)
 ### XOR - Exclusive or on two top stack elements
 
 XOR  (n1 n2 -- n3)
-
-
 
 vi: spell spl=en

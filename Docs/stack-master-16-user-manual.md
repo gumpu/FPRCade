@@ -1,9 +1,10 @@
-Title
+---
+title: Stackmaster-16 instruction set Version 0.001
+author: Frans Slothouber
+---
 
-Stackmaster-16 instruction set Version 0.001
 
-## Stackmaster-16
-
+# Introduction
 
 Stackmaster-16 is a 16 bit stack based processor. It was designed to make
 it easy to build a Forth system with it.
@@ -24,15 +25,15 @@ The stack depths are:
 
 These stacks do not reside in memory.
 
-It supports the following arithmetic operations (signed and unsigned): + - / * %
+It supports the following arithmetic operations (signed and unsigned): `+ - *`
 
-The following bit operations (unsigned): >> << | & ^
+The following bit operations (unsigned): `>> << | & ^`
 
-The following bit operations (signed): >>
+The following bit operations (signed): `>>`
 
-The following logical operations: < > <= >= == !=
+The following logical operations: `< > <= >= == !=`
 
-Stack: drop swap dup over pop push pick
+Stack: drop swap dup pop push
 
 Memory (byte / word / long)
 
@@ -57,12 +58,13 @@ ASR LTU LT GTU GT LTEU LTE GTEU GTE LSL LSR STO AND OR XOR NEG NOT RD
 
 An assembly file contains five type of lines:
 
--1 A remark, this is a line that starts with a ';'
--2 A label, this a line that starts with a word ending with a ':'
--3 A directive, this is a line that starts with a '.'
--4 An empty line, a line with containing only spaces.
--5 An instruction, a line that start with a word that matches one the
-   possible instructions of the Stackmaster-16.
+1. A remark, this is a line that starts with a ';'
+2. A label, this a line that starts with a word ending with a ':'
+3. A directive, this is a line that starts with a '.'
+4. An empty line, a line with containing only spaces.
+5. An instruction, a line that start with a word that matches one the
+  possible instructions of the Stackmaster-16.
+
 
 The following is an example
 
@@ -90,6 +92,32 @@ Examples:
 
     .align w
     .align l
+
+### Numbers
+
+When converting input numbers, the text interpreter shall recognize
+integer numbers in the form <anynum>.
+
+    <anynum> := { <decnum> | <hexnum> | <binnum> | <cnum> }
+    <BASEnum> := [-]<bdigit><bdigit>*
+    <decnum> := #[-]<decdigit><decdigit>*
+    <hexnum> := $[-]<hexdigit><hexdigit>*
+    <binnum> := %[-]<bindigit><bindigit>*
+    <cnum> := ’<char>’
+    <bindigit> := { 0 | 1 }
+    <decdigit> := { 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 }
+    <hexdigit> := { <decdigit> | a | b | c | d | e | f | A | B | C | D | E | F }
+
+    For <hexdigit>, the digits a .. f have the values 10 .. 15.
+
+    <char> represents any printable character.
+
+    The radix used for number conversion is:
+    <decnum>       10
+    <hexnum>       16
+    <binnum>       2
+    <cnum>         the number is the value of <char>
+
 
 
 ## Terms and definitions
@@ -130,6 +158,10 @@ List of instructions and opcodes
     .   0011         MOV  Move from ss to tt
     1100ssdddddddddd LDL  Load immediate low 10 bits to ss
     1101ssddddddxxxx LDH  Load immediate high 6 bits to ss
+
+    1111110000000000
+    5432109876543210
+    ||||||||||||||||
     1110fffffxxpxxxx Operates on data stack (2 values)
     .   00000xx0xxxx ADDU Unsigned 16 bit addition
     .   00000xx1xxxx ADD  Signed 16 bit addition
@@ -138,7 +170,7 @@ List of instructions and opcodes
     .   00010xx0xxxx
     .   00010xx1xxxx
     .   00011xxxxxxx EQ   Equal
-    .   00100xx0xxxx ASRU Unsigned shift right
+    .   00100xx0xxxx
     .   00100xx1xxxx ASR  Signed shift right, extends sign
     .   00101xx0xxxx LTU  Unsigned less than
     .   00101xx1xxxx LT   Signed less than
@@ -181,9 +213,9 @@ The meaning of the field names is as follows:
       011 illegal
       100 4 bytes
 
-## Details
+## Instruction Details
 
-Notation:
+### Notation:
 
 - s1, s2, .., sn  -- signed 16 bit numbers
 - u1, u2, .., un  -- unsigned 16 bit numbers
@@ -195,35 +227,32 @@ Notation:
 
 Signed addition: s3 = s1 + s2
 
-(s1 s2 -- s3)
+`ADD (s1 s2 -- s3)`
 
 ### ADDU - Unsigned addition
 
 Unsigned addition: u3 = u1 + u2
 
-(u1 u2 -- u3)
+`ADDU (u1 u2 -- u3)`
 
 ### AND - Bitwise and
 
 Bitwise and: n3 = n1 & n2
 
-(n1 n2 -- n3)
+`AND (n1 n2 -- n3)`
 
 ### ASR - Arithmetical shift right
 
 Arithmetical shift right.
 
-(n1 -- n2)
-
-
-### ASRU - Unsigned arithmetical shift right
-
-ASRU
+`ASR (s1 u1 -- s2)`
 
 
 ### Branch if false - BIF
 
-Encoding: 0001dddddddddddd
+Encoding: `0001dddddddddddd`
+
+`BIF (tf -- )`
 
 Branch to a new address if the top value on the data stack has the value false
 (0).  The new address is computed from the current PC and the offset given in
@@ -236,7 +265,7 @@ Where offset is in the range [-2048, 2047]
 
 ### Drop value - DROP
 
-(x: u1 -- x: )
+`DROP (x: u1 -- x: )`
 
 Drop the top element from the given stack.
 
@@ -258,21 +287,23 @@ destination address is loaded into the PC.
 
 ### EQ -- Are two top values equal
 
-EQ   (u1 u2 -- t1)
+`EQ   (u1 u2 -- t1)`
 
 ### GT - signed greater than
 
-GT   (u1 u2 -- t1)
+`GT   (u1 u2 -- t1)`
 
 ### GTE - signed greater than or equal
 
-GTE  (u1 u2 -- t1)
+`GTE  (u1 u2 -- t1)`
 
 ### GTE - unsigned greater than or equal
 
-GTEU (u1 u2 -- t1)
+`GTEU (u1 u2 -- t1)`
 
-GTU  (u1 u2 -- t1)
+### GTU - unsigned greater than
+
+`GTU  (u1 u2 -- t1)`
 
 ### HALT -
 
@@ -293,11 +324,11 @@ Pop the top value from the return stack and loads this value into the PC.
 
 ### LSL - Logical shift left
 
-LSL (u1 -- u2)
+LSL (n2 u1 -- n3)
 
 ### LSL - Logical shift right
 
-LSR (u1 -- u2)
+LSR (n2 u1 -- n3)
 
 ### LT - signed less than
 
@@ -315,23 +346,23 @@ LTEU  (u1 u2 -- tf)
 
 LTU  (u1 u2 -- tf)
 
-## MOV - Move value from one stack to the other
+### MOV - Move value from one stack to the other
 
 MOV  (x: x1 -- y: x1)
 
-## MUL - Signed multiplication
+### MUL - Signed multiplication
 
 MUL
 
-## MULU - Unsigned multiplication
+### MULU - Unsigned multiplication
 
 MULU
 
-## NEG - 2 Complements
+### NEG - 2 Complements
 
 NEG (n1 -- n2)
 
-## Do nothing -- NOP
+### Do nothing -- NOP
 
 NOP ( -- )
 
@@ -351,13 +382,13 @@ Bitwise or: n3 = n1 | n2
 
 ### RD - Read n bytes from memory
 
-RD.b  (a1 -- u1)
+RD.b  (a1 -- n1)
 
-RD.w  (a1 -- u1)
+RD.w  (a1 -- n1)
 
-RD.l  (a1 -- u1 u2)
+RD.l  (a1 -- n1 n2)
 
-## STO - Store n bytes in memory
+### STO - Store n bytes in memory
 
 STO.b (n1 a1 -- )
 
@@ -369,14 +400,15 @@ Stores n1 at address locations a1 and a1+1.
 
 STO.l (n1 n2 a1 -- )
 
-Stores n1 and n2 at addresses a1 and a1+1, a1+2, and a1+3.
+Stores n1 and n2 at addresses a1, a1+1, a1+2, and a1+3.
 
 ### SWAP - Swap the two top stack elements of the given stack
 
 SWAP (n1 n2 -- n2 n1)
 
+### XOR - Exclusive Or
 
-### XOR - Exclusive or on two top stack elements
+Perform an exclusive or on the two top stack elements of the given stack.
 
 XOR  (n1 n2 -- n3)
 

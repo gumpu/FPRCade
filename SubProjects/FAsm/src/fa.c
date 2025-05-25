@@ -24,6 +24,15 @@
 #define HEX_MAX_BUFFER_SIZE 16
 
 /* --------------------------------------------------------------------*/
+/* Valid stack IDs fit in two bits */
+enum FA_StackID {
+   eSID_Data = 0x0,
+   eSID_Control = 0x1,
+   eSID_Return = 0x2,
+   eSID_Temp = 0x3,
+   eSID_Unknown = 0xF
+};
+
 enum FA_Phase {
     eFA_Scan = 0,
     eFA_Assemble = 1,
@@ -36,6 +45,8 @@ enum FA_ErrorReason {
     eFA_Syntax_Error,
     eFA_DirectiveTooLong,
     eFA_AddressError,
+    eFA_StackID_Error,
+
     /* Should be the last entry */
     eFA_NumberOfErrors
 };
@@ -95,7 +106,10 @@ typedef struct directive_generator {
 
 static void report_error(enum FA_ErrorReason reason, char* line, int line_no);
 static uint16_t get_stack_id(char c);
-static bool read_number(const char *line, uint16_t* value);
+static bool read_number(
+        const char *word, int64_t* value, label_table_type* table,
+        enum FA_ErrorReason* reason,
+        bool* is_negative);
 static unsigned skip_word(const char line[FA_LINE_BUFFER_SIZE], unsigned n);
 static unsigned skip_spaces(const char line[FA_LINE_BUFFER_SIZE], unsigned n);
 static unsigned get_word(
@@ -176,7 +190,7 @@ static uint16_t dot_l_generator(
     FILE* outpf, FILE* listf, uint16_t address,
     label_table_type* table,
     enum FA_Phase  phase, enum FA_ErrorReason* error_reason);
-static uint16_t dot_code_generator(
+static uint16_t dot_org_generator(
     const char line[FA_LINE_BUFFER_SIZE],
     FILE* outpf, FILE* listf, uint16_t address,
     label_table_type* table,
@@ -228,8 +242,20 @@ static uint8_t  hex_byte_buffer[HEX_MAX_BUFFER_SIZE];
 static uint16_t hex_current_address = 0;
 static uint8_t  hex_current_byte = 0;
 
-/* --------------------------------------------------------------------*/
+/* --------------------------------------------------------------------
+ * Routines to create output in .hex format
+ * --------------------------------------------------------------------*/
 
+/**
+ * Create a single .hex record containing n data items
+ *
+ * @param[in] outpf - file to writ to
+ * @param[in] address - address to be used in the record
+ * @param[in] n - number of data items
+ * @param[in] bytes - array with n byte values
+ *
+ * @returns  number of bytes written
+ */
 int hex_write_data_bytes(
         FILE* outpf, uint16_t address, uint8_t* bytes, uint8_t n)
 {
@@ -283,6 +309,7 @@ int hex_set_start_address(uint16_t address)
     return address;
 }
 
+/* TODO: Documentation */
 int hex_push_byte(FILE* outpf, uint8_t byte)
 {
     int result = 0;
@@ -298,6 +325,7 @@ int hex_push_byte(FILE* outpf, uint8_t byte)
     return result;
 }
 
+/* TODO: Documentation */
 int hex_flush(FILE* outpf)
 {
     int result = 0;
@@ -335,6 +363,7 @@ static void report_error(enum FA_ErrorReason reason, char* line, int line_no)
             MAX_ERROR_MESSAGE_LENGTH, "%s", error_reason_text[reason]);
 }
 
+
 /**
  * TODO
  */
@@ -344,30 +373,189 @@ static uint16_t get_stack_id(char c)
     uint16_t id;
     switch (c) {
         case 'D':
-            id = 0x0;
+            id = eSID_Data;
             break;
         case 'C':
-            id = 0x1;
+            id = eSID_Control;
             break;
         case 'R':
-            id = 0x2;
+            id = eSID_Return;
             break;
         case 'T':
-            id = 0x3;
+            id = eSID_Temp;
             break;
         default:
             /* Error, unknown stack */
-            id = 0xF;
+            id = eSID_Unknown;
             break;
     }
     return id;
 }
 
-static bool read_number(const char *line, uint16_t* value)
+/* --------------------------------------------------------------------*/
+
+static int16_t to_digit(char c, uint16_t base)
 {
-    // TODO Error check
-    *value = strtol(line, NULL, 16);
-    return true;
+    int16_t d;
+
+    d = (int16_t)c;
+    if ((c >= 'a') && (c <= 'z')) {
+        d = 10 + c - 'a';
+    } else if ((c >= 'A') && (c <= 'Z')) {
+        d = 10 + c - 'A';
+    } else {
+        d = d - '0';
+    }
+    if ((d >= base) || (d < 0)) {
+        d = -1;
+    }
+
+    return d;
+}
+
+
+
+/**
+ * Given a word returns the number it represents
+ *
+ * Handles:
+ * - binary numbers;       %1010101 %-11
+ * - decimal numbers;      328912  #3282  #-100 -9
+ * - hexadecimal numbers:  $DEADBEAF
+ * - label values;         routine1
+ *
+ * Returns a 64 bit signed number;
+ */
+
+static bool read_number(
+        const char *word,
+        int64_t* value,
+        label_table_type* table,
+        enum FA_ErrorReason* reason,
+        bool* is_negative_output
+        )
+{
+    bool is_wrong = false;
+    char first_char = word[0];
+    bool is_negative = false;
+    bool is_label = false;
+    uint16_t u = strlen(word);
+    int64_t result = 0;
+    int64_t base = 10;
+
+    if (first_char == '\'') {
+        if ((u == 3) && (word[2] == '\'')) {
+            result = (int32_t)word[1];
+        } else {
+            is_wrong = true;
+        }
+    } else {
+        uint32_t i = 1;
+
+        switch (first_char) {
+            case '%': /* Binary number */
+                {
+                    base = 2;
+                    if (u > 1) {
+                        is_negative = (word[1] == '-');
+                        is_wrong = is_negative && (u == 2); /* Only %- */
+                        if (is_negative) { ++i; }
+                    } else {
+                        is_wrong = true;
+                    }
+                }
+                break;
+            case '#': /* Decimal number */
+                {
+                    base = 10;
+                    if (u > 1) {
+                        is_negative = (word[1] == '-');
+                        is_wrong = is_negative && (u == 2); /* Only #- */
+                        if (is_negative) { ++i; }
+                    } else {
+                        is_wrong = true;
+                    }
+                }
+                break;
+            case '$': /* Hexadecimal number */
+                {
+                    base = 16;
+                    if (u > 1) {
+                        is_negative = (word[1] == '-'); /* Only $- */
+                        is_wrong = is_wrong && (u == 2);
+                        if (is_negative) { ++i; }
+                    } else {
+                        is_wrong = true;
+                    }
+                }
+                break;
+            case '-': /* Negative decimal number */
+                is_negative = true;
+                base = 10;
+                break;
+            default: /* Label or a non negative decimal
+                        number */
+                {
+                    base = 10;
+                    int32_t d = to_digit(word[0], base);
+                    if (d >= 0) {
+                        result += d;
+                    } else {
+                        is_label = true;
+                        break;
+                    }
+                }
+        }
+
+        if (is_label) {
+            uint16_t location;
+            if (find_label(table, word, &location)) {
+                result = location;
+            } else {
+                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                        "%s", "label not found");
+                is_wrong = true;
+                *reason = eFA_AddressError;
+            }
+        } else {
+            for (; (i < u) && !is_wrong; i++) {
+                result = result*base;
+                if (word[i] == '-') {
+                    if (is_negative) {
+                        is_wrong = true;
+                        break;
+                    }
+                } else {
+                    int32_t d = to_digit(word[i], base);
+                    if (d >= 0) {
+                        result += d;
+                    } else {
+                        is_wrong = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if (is_wrong) {
+        if (*reason != eFA_AddressError) {
+            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                    "%s (%s)", "malformed number", word);
+            *reason = eFA_Syntax_Error;
+            /* Make sure the function returns non-random values */
+            *value = 0;
+            *is_negative_output = false;
+        }
+    } else {
+        if (is_negative) {
+            result = 0 - result;
+        }
+        *value = result;
+        *is_negative_output = is_negative;
+    }
+
+    return !is_wrong;
 }
 
 /**
@@ -637,10 +825,13 @@ static uint16_t halt_generator(
 }
 
 /**
+ * Handles:
+ *
  * LDL d 0x00000
  * LDL r 0x00000
  * LDL c 0x00000
  * LDL t 0x00000
+ *
  */
 static uint16_t ldl_generator(
     const char line[FA_LINE_BUFFER_SIZE],
@@ -654,32 +845,92 @@ static uint16_t ldl_generator(
 
     if (line[i] == '\0') {
         snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
-                 "%s", "no destination or value");
+                 "%s", "missing destination and value");
+        *reason = eFA_Syntax_Error;
     } else {
-        uint16_t value;
+        uint16_t used_value;
+        int64_t value;
         char destination = line[i];
-        uint16_t bits = get_stack_id(destination);
-        if (bits == 0x7) {
-            snprintf(error_message,
-                    MAX_ERROR_MESSAGE_LENGTH, "%s", "illegal destination");
+        if (line[i+1] == '\0') {
+            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                     "%s", "missing value");
+            *reason = eFA_Syntax_Error;
+        } else if (!isspace(line[i+1])) {
+            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                     "%s", "malformed stack ID");
+            *reason = eFA_StackID_Error;
         } else {
-            i = skip_word(line, i);
-            i = skip_spaces(line, i);
-            if (line[i] != '\0') {
-                if (read_number(&(line[i]), &value)) {
-                    uint16_t instruction = 0xC000;
-                    instruction |= value;
-                    instruction |= (bits << 10);
-                    emit_code(outpf, listf, address, instruction);
-                    new_address += 2;
-                } else {
-                    snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
-                             "%s", "syntax error in number");
+            uint16_t bits = get_stack_id(destination);
+            if (bits == eSID_Unknown) {
+                snprintf(error_message,
+                        MAX_ERROR_MESSAGE_LENGTH, "%s", "unknown stack ID");
+                *reason = eFA_StackID_Error;
+            } else {
+                i = skip_word(line, i);
+                i = skip_spaces(line, i);
+                if (line[i] != '\0') {
+                    bool is_negative;
+                    char numberstring[FA_MAX_WORD_SIZE];
+                    get_word(numberstring, &(line[i]), ' ', FA_MAX_WORD_SIZE);
+                    if (read_number(numberstring, &value, table, reason, &is_negative)) {
+                        assert(*reason == eFA_AllOk);
+                        if ((value < 0) || (value > 1023) || is_negative) {
+                             snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                                     "%s", "value does not fit");
+                            *reason = eFA_Syntax_Error;
+                        } else {
+                            uint16_t instruction = 0xC000;
+                            used_value = (uint16_t)value;
+                            instruction |= used_value;
+                            instruction |= (bits << 10);
+                            emit_code(outpf, listf, address, instruction);
+                            new_address += 2;
+                        }
+                    } else {
+                        /* There was some error reading the number */
+                        assert(*reason != eFA_AllOk);
+                    }
                 }
             }
         }
     }
     return new_address;
+}
+
+static uint16_t xor_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xe780);
+    return address + 2;
+}
+
+static uint16_t or_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xe700);
+    return address + 2;
+}
+
+static uint16_t and_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xe680);
+    return address + 2;
+}
+
+static uint16_t eq_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xe180);
+    return address + 2;
 }
 
 static uint16_t lt_generator(
@@ -776,27 +1027,27 @@ static uint16_t bif_generator(
 }
 
 static instruction_generator_type instruction_generators[] = {
-    {"NEG",  neg_generator,  2},
-    {"ADD",  add_generator,  2},
-    {"DUP",  dup_generator,  2},
-    {"NOP",  nop_generator,  2},
-    {"HALT", halt_generator, 2},
-    {"LDL",  ldl_generator,  2},
-    {"LT",   lt_generator,   2},
-    {"GT",   gt_generator,   2},
-    {"BIF",  bif_generator,  2},
+    {"NEG",   neg_generator,   2},
+    {"ADD",   add_generator,   2},
+    {"DUP",   dup_generator,   2},
+    {"NOP",   nop_generator,   2},
+    {"HALT",  halt_generator,  2},
+    {"LDL",   ldl_generator,   2},
+    {"LT",    lt_generator,    2},
+    {"GT",    gt_generator,    2},
+    {"BIF",   bif_generator,   2},
     {"LEAVE", leave_generator, 2},
     {"ENTER", enter_generator, 2},
+    {"OR",    or_generator,    2},
+    {"AND",   and_generator,   2},
+    {"XOR",   xor_generator,   2},
+    {"EQ",    eq_generator,    2},
 
     /* Should always be the last one */
     {NULL, NULL}
 };
 
 /* --------------------------------------------------------------------*/
-
-// TODO
-// void emit_word(address, value, outpf, listf) {}
-// void emit_bye(address, value, outpf, listf) {}
 
 /**
  * Handles
@@ -859,9 +1110,48 @@ static uint16_t dot_b_generator(
     label_table_type* table,
     enum FA_Phase  phase, enum FA_ErrorReason* error_reason)
 {
-    // TODO
-    // emit_byte(address, value, outpf, listf)
-    return 0;
+
+    char numberstring[FA_MAX_WORD_SIZE];
+    unsigned i = 0;
+    assert(line[1] == 'B');
+    unsigned n = 0;
+    unsigned bytes_needed = 0;
+
+    i = skip_word(line, 0);
+    i = skip_spaces(line, i);
+
+    n = get_word(numberstring, &(line[i]), ' ', MAX_INSTRUCTION_NAME_LENGTH);
+    if (n == 0) {
+        /* .b  but no values */
+        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+                ".b needs at least one value");
+        *error_reason = eFA_Syntax_Error;
+    } else {
+        while (n > 0) {
+            ++bytes_needed;
+            if (phase == eFA_Assemble) {
+                bool is_negative;
+                int64_t value;
+                if (read_number(numberstring, &value, table, error_reason, &is_negative)) {
+                    if (is_negative && (value >= -128) && (value < 128)) {
+                        uint8_t byte_value = (value & 0xFF);
+                        hex_push_byte(outpf, byte_value);
+                    } else if (!is_negative && (value >= 0) && (value < 256)) {
+                        uint8_t byte_value = (value & 0xFF);
+                        hex_push_byte(outpf, byte_value);
+                    } else {
+                        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                                "%s", "value does not fit in a byte");
+                        *error_reason = eFA_Syntax_Error;
+                        break;
+                    }
+                }
+            }
+            i = skip_spaces(line, n + i);
+            n = get_word(numberstring, &(line[i]), ' ', MAX_INSTRUCTION_NAME_LENGTH);
+        }
+    }
+    return address + bytes_needed;
 }
 
 static uint16_t dot_w_generator(
@@ -888,14 +1178,48 @@ static uint16_t dot_l_generator(
 }
 
 
-static uint16_t dot_code_generator(
+static uint16_t dot_org_generator(
     const char line[FA_LINE_BUFFER_SIZE],
     FILE* outpf, FILE* listf, uint16_t address,
     label_table_type* table,
     enum FA_Phase  phase, enum FA_ErrorReason* error_reason)
 {
+    char numberstring[FA_MAX_WORD_SIZE];
     uint16_t new_address = address;
+    unsigned i;
+    unsigned n;
 
+    i = skip_word(line, 0);
+    i = skip_spaces(line, i);
+    n = get_word(numberstring, &(line[i]), ' ', MAX_INSTRUCTION_NAME_LENGTH);
+    if (n == 0) {
+        /* .b  but no values */
+        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+                ".org needs value");
+        *error_reason = eFA_Syntax_Error;
+    } else {
+        bool is_negative;
+        int64_t value;
+        if (read_number(numberstring, &value, table, error_reason, &is_negative)) {
+            if (is_negative) {
+                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+                        ".org value can not be negative");
+                *error_reason = eFA_Syntax_Error;
+            } else {
+                if (value > 0xFFFF) {
+                    snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+                            ".org value can not be negative");
+                    *error_reason = eFA_AddressError;
+                } else {
+                    new_address = (uint16_t)value;
+                    if (phase == eFA_Assemble) {
+                        hex_flush(outpf);
+                        hex_set_start_address(new_address);
+                    }
+                }
+            }
+        }
+    }
     return new_address;
 }
 
@@ -944,7 +1268,7 @@ static directive_generator_type directive_generators[] = {
     {".W",     dot_w_generator},
     {".L",     dot_l_generator},
     {".ALIGN", dot_align_generator},
-    {".CODE",  dot_code_generator},
+    {".ORG",   dot_org_generator},
     {NULL, NULL}
 };
 

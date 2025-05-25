@@ -190,7 +190,7 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                     c->pc = address;
                 }
                 break;
-            case 0x1000:
+            case 0x1000: /* BIF */
                 {
                     uint16_t truth_value;
                     struct Stack* stack = &(c->data_stack);
@@ -260,7 +260,7 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                     (c->pc) += 2;
                 }
                 break;
-            case 0xC000: /* Load */
+            case 0xC000: /* Load:  LDL */
                 {
                     struct Stack* stack;
                     uint16_t stack_id = (c->instruction & 0x0C00) >> 10;
@@ -270,17 +270,17 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                     (c->pc) += 2;
                 }
                 break;
-            case 0xD000: /* TODO */
+            case 0xD000: /* TODO Load: LDH */
                 c->exception = IllegalInstruction;
                 c->keep_going = false;
                 break;
             case 0xE000: /* 2 value operators */
                 {
-                    uint16_t func = (c->instruction & 0x0F80);
+                    uint16_t func = (c->instruction & 0x0F80) >> 7;
                     uint16_t is_signed = (c->instruction & 0x0010);
                     struct Stack* stack = &(c->data_stack);
                     switch (func) {
-                        case 0x0000: /* ADD(U) */
+                        case 0x00: /* ADD(U) */
                             {
                                 if (is_signed) {
                                     int16_t v1, v2;
@@ -297,7 +297,33 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                                 }
                             }
                             break;
-                        case 0x0300: /* GT(U) */
+                        case 0x03: /* EQ */
+                            {
+                                uint16_t r;
+                                uint16_t v1, v2;
+                                v1 = pop(c, stack);
+                                v2 = pop(c, stack);
+                                r = (v2 == v1) ? 0xFFFF : 0x0000;
+                                push(c, stack, r);
+                            }
+                            break;
+                        case 0x03: /* ASR */
+                            {
+                                uint16_t r;
+                                if (is_signed) {
+                                    int16_t v1, v2;
+                                    uint16_t v1, v2;
+                                    v1 = (int16_t)pop(c, stack);
+                                    v2 = (int16_t)pop(c, stack);
+                                    r = (v2 >> v1) ? 0xFFFF : 0x0000;
+                                    push(c, stack, r);
+                                } else {
+                                    c->exception = IllegalInstruction;
+                                    c->keep_going = false;
+                                }
+                            }
+                            break;
+                        case 0x06: /* GT(U) */
                             {
                                 uint16_t r;
                                 if (is_signed) {
@@ -311,6 +337,78 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                                     v2 = pop(c, stack);
                                     r = (v2 > v1) ? 0xFFFF : 0x0000;
                                 }
+                                push(c, stack, r);
+                            }
+                            break;
+                        case 0x08: /* GTE(U) */
+                            {
+                                uint16_t r;
+                                if (is_signed) {
+                                    int16_t v1, v2;
+                                    v1 = (int16_t)pop(c, stack);
+                                    v2 = (int16_t)pop(c, stack);
+                                    r = (v2 >= v1) ? 0xFFFF : 0x0000;
+                                } else {
+                                    uint16_t v1, v2;
+                                    v1 = pop(c, stack);
+                                    v2 = pop(c, stack);
+                                    r = (v2 >= v1) ? 0xFFFF : 0x0000;
+                                }
+                                push(c, stack, r);
+                            }
+                            break;
+                        case 0x09: /* LSR */
+                            {
+                                uint16_t r;
+                                uint16_t v1, v2;
+                                v1 = pop(c, stack);
+                                v2 = pop(c, stack);
+                                r = (v2 << v1);
+                                push(c, stack, r);
+                            }
+                            break;
+                        case 0x0A: /* LSL */
+                            {
+                                uint16_t r;
+                                uint16_t v1, v2;
+                                v1 = pop(c, stack);
+                                v2 = pop(c, stack);
+                                r = (v2 >> v1);
+                                push(c, stack, r);
+                            }
+                            break;
+                        case 0x0B: /* STO */
+                            /* TODO */
+                            c->exception = IllegalInstruction;
+                            c->keep_going = false;
+                            break;
+                        case 0x0D: /* AND */
+                            {
+                                uint16_t r;
+                                uint16_t v1, v2;
+                                v1 = pop(c, stack);
+                                v2 = pop(c, stack);
+                                r = (v2 & v1);
+                                push(c, stack, r);
+                            }
+                            break;
+                        case 0x0E: /* OR */
+                            {
+                                uint16_t r;
+                                uint16_t v1, v2;
+                                v1 = pop(c, stack);
+                                v2 = pop(c, stack);
+                                r = (v2 | v1);
+                                push(c, stack, r);
+                            }
+                            break;
+                        case 0x0F:
+                            {
+                                uint16_t r;
+                                uint16_t v1, v2;
+                                v1 = pop(c, stack);
+                                v2 = pop(c, stack);
+                                r = (v2 ^ v1);
                                 push(c, stack, r);
                             }
                             break;

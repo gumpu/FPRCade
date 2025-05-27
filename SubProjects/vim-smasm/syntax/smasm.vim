@@ -20,12 +20,17 @@ syn match   smasmLabel			/[A-Za-z0-9_]\+:/
 syn match   smasmTODO			/\<\(TODO\|FIXME\|NOTE\)\>/ contained
 syn region  smasmCommentSingle	        start=/;/ end=/$/ contains=smasmTODO
 syn keyword smasmDirective		.b .str .w .l .org .align
-syn keyword smasmOpcode			leave enter nop ldl ldh dup swap
-syn keyword smasmOpcode			add gt bif neg halt
 syn region  smasmString			start=/"/  end=/"/ skip=/\\"/
+
+" Numbers
 syn match   smasmBinaryNumber		/\<%[01]\+\>/
 syn match   smasmHexNumber		/\<$\x\+\>/
-syn match   smasmDecimalNumber		/\<[0-9]+\>/
+syn match   smasmDecimalNumber		/\<[0-9]\+\>/
+
+syn keyword smasmOpcode			leave enter nop ldl ldh dup swap
+syn keyword smasmOpcode			add gt lt bif neg halt
+syn keyword smasmOpcode			eq xor or and
+syn keyword smasmOpcode			rd ird sto isto
 
 hi def link smasmDirective	Type
 hi def link smasmLabel		Function

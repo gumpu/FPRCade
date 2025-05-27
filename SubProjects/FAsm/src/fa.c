@@ -33,6 +33,14 @@ enum FA_StackID {
    eSID_Unknown = 0xF
 };
 
+enum FA_SizeID {
+   eSZ_Byte = 0x1,
+   eSZ_Word = 0x2,
+   eSZ_Long = 0x4,
+   eSZ_Unknown = 0xF
+};
+
+
 enum FA_Phase {
     eFA_Scan = 0,
     eFA_Assemble = 1,
@@ -103,13 +111,17 @@ typedef struct directive_generator {
 /* --------------------------------------------------------------------*/
 
 
-
 static void report_error(enum FA_ErrorReason reason, char* line, int line_no);
-static uint16_t get_stack_id(char c);
+static enum FA_SizeID get_size_id(char c);
+static enum FA_StackID get_stack_id(char c);
+static int16_t to_digit(char c, uint16_t base);
 static bool read_number(
-        const char *word, int64_t* value, label_table_type* table,
-        enum FA_ErrorReason* reason,
-        bool* is_negative);
+    const char *word,
+    int64_t* value,
+    label_table_type* table,
+    enum FA_ErrorReason* reason,
+    bool* is_negative_output
+    );
 static unsigned skip_word(const char line[FA_LINE_BUFFER_SIZE], unsigned n);
 static unsigned skip_spaces(const char line[FA_LINE_BUFFER_SIZE], unsigned n);
 static unsigned get_word(
@@ -147,6 +159,45 @@ static uint16_t ldl_generator(
     const char line[FA_LINE_BUFFER_SIZE],
     FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
     enum FA_ErrorReason* reason);
+static uint16_t xor_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
+static uint16_t or_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
+static uint16_t and_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
+static uint16_t eq_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
+static uint16_t rd_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
+static uint16_t sto_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
+static uint16_t ird_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
+static uint16_t isto_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason);
+static uint16_t rd_sto_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf,
+    FILE* listf,
+    uint16_t address,
+    enum FA_ErrorReason* reason,
+    uint16_t opcode);
 static uint16_t lt_generator(
     const char line[FA_LINE_BUFFER_SIZE],
     FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
@@ -363,27 +414,40 @@ static void report_error(enum FA_ErrorReason reason, char* line, int line_no)
             MAX_ERROR_MESSAGE_LENGTH, "%s", error_reason_text[reason]);
 }
 
+/**
+ * Check the size parameter
+ *
+ * Value can be used in a opcode to indicate size.
+ */
+static enum FA_SizeID get_size_id(char c)
+{
+    enum FA_SizeID size;
+
+    switch (c) {
+        case 'B': size = eSZ_Byte; break;
+        case 'W': size = eSZ_Word; break;
+        case 'L': size = eSZ_Long; break;
+        default:
+            size = eSZ_Unknown;
+    }
+    return size;
+}
 
 /**
- * TODO
+ * Parse stack indicator
+ *
+ * Value can be used in a opcode to indicate which stack to
+ * use.
  */
 
-static uint16_t get_stack_id(char c)
+static enum FA_StackID get_stack_id(char c)
 {
     uint16_t id;
     switch (c) {
-        case 'D':
-            id = eSID_Data;
-            break;
-        case 'C':
-            id = eSID_Control;
-            break;
-        case 'R':
-            id = eSID_Return;
-            break;
-        case 'T':
-            id = eSID_Temp;
-            break;
+        case 'D': id = eSID_Data; break;
+        case 'C': id = eSID_Control; break;
+        case 'R': id = eSID_Return; break;
+        case 'T': id = eSID_Temp; break;
         default:
             /* Error, unknown stack */
             id = eSID_Unknown;
@@ -839,8 +903,9 @@ static uint16_t ldl_generator(
     enum FA_ErrorReason* reason)
 {
     uint16_t new_address = address;
-    unsigned i = 0;
-    i = skip_word(line, i);
+    unsigned i;
+
+    i = skip_word(line, 0);
     i = skip_spaces(line, i);
 
     if (line[i] == '\0') {
@@ -932,6 +997,88 @@ static uint16_t eq_generator(
     emit_code(outpf, listf, address, 0xe180);
     return address + 2;
 }
+
+
+/**
+ * RD
+ */
+static uint16_t rd_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    return rd_sto_generator(line, outpf, listf, address, reason, 0xF200);
+}
+
+
+/**
+ * STO
+ */
+static uint16_t sto_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    return rd_sto_generator(line, outpf, listf, address, reason, 0xE580);
+}
+
+/**
+ * IRD
+ */
+static uint16_t ird_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    return rd_sto_generator(line, outpf, listf, address, reason, 0xF280);
+}
+
+
+/**
+ * ISTO
+ */
+static uint16_t isto_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address, label_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    return rd_sto_generator(line, outpf, listf, address, reason, 0xE5C0);
+}
+
+
+/**
+ *
+ */
+static uint16_t rd_sto_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf,
+    FILE* listf,
+    uint16_t address,
+    enum FA_ErrorReason* reason,
+    uint16_t opcode)
+{
+    unsigned i;
+
+    i = skip_word(line, 0);
+    i = skip_spaces(line, i);
+
+    if (line[i] == '\0') {
+        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                 "%s", "missing size indicator");
+        *reason = eFA_Syntax_Error;
+    } else {
+        enum FA_SizeID size = get_size_id(line[i]);
+        if (size == eSZ_Unknown) {
+            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                    "%s", "unknown size indicator");
+            *reason = eFA_Syntax_Error;
+        } else {
+            emit_code(outpf, listf, address, (opcode | size));
+        }
+    }
+    return address + 2;
+}
+
 
 static uint16_t lt_generator(
     const char line[FA_LINE_BUFFER_SIZE],
@@ -1042,6 +1189,10 @@ static instruction_generator_type instruction_generators[] = {
     {"AND",   and_generator,   2},
     {"XOR",   xor_generator,   2},
     {"EQ",    eq_generator,    2},
+    {"RD",    rd_generator,    2},
+    {"STO",   sto_generator,   2},
+    {"IRD",   ird_generator,   2},
+    {"ISTO",  isto_generator,  2},
 
     /* Should always be the last one */
     {NULL, NULL}
@@ -1421,10 +1572,9 @@ static bool parse_directive(
 }
 
 
-
 /**
- *
- *
+ * Give a line that contains an instruction, parse
+ * the instruction and generate the corresponding code
  */
 
 static bool parse_instruction(

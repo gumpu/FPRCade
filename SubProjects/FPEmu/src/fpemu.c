@@ -239,11 +239,12 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                 {
                     uint16_t value;
                     struct Stack* source_stack;
+                    struct Stack* destination_stack;
                     uint16_t func = (c->instruction & 0x0F00);
                     uint16_t source_stack_id = (c->instruction & 0x00C0) >> 6;
-                    // TODO
-                    // uint16_t dest_stack_id = (c->instruction & 0x0030) >> 4;
+                    uint16_t dest_stack_id   = (c->instruction & 0x0030) >> 4;
                     source_stack = get_stack(c, source_stack_id);
+                    destination_stack = get_stack(c, dest_stack_id);
                     switch (func) {
                         case 0x0000: /* DROP */
                             (void)pop(c, source_stack);
@@ -252,6 +253,10 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                             value = pop(c, source_stack);
                             push(c, source_stack, value);
                             push(c, source_stack, value);
+                            break;
+                        case 0x0300: /* SWAP */
+                            value = pop(c, source_stack);
+                            push(c, destination_stack, value);
                             break;
                         default:
                             c->exception = IllegalInstruction;
@@ -307,20 +312,25 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                                 push(c, stack, r);
                             }
                             break;
-                        case 0x03: /* ASR */
+                        case 0x04: /* ASR */
                             {
-                                uint16_t r;
+                                int16_t r;
                                 if (is_signed) {
                                     int16_t v1, v2;
-                                    uint16_t v1, v2;
                                     v1 = (int16_t)pop(c, stack);
                                     v2 = (int16_t)pop(c, stack);
-                                    r = (v2 >> v1) ? 0xFFFF : 0x0000;
+                                    r = (v2 >> v1);
                                     push(c, stack, r);
                                 } else {
                                     c->exception = IllegalInstruction;
                                     c->keep_going = false;
                                 }
+                            }
+                            break;
+                        case 0x05: /* LT / LTU */
+                            {
+                            c->exception = IllegalInstruction;
+                            c->keep_going = false;
                             }
                             break;
                         case 0x06: /* GT(U) */
@@ -377,10 +387,31 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                                 push(c, stack, r);
                             }
                             break;
-                        case 0x0B: /* STO */
-                            /* TODO */
-                            c->exception = IllegalInstruction;
-                            c->keep_going = false;
+                        case 0x0B: /* STO / ISTO */
+                            {
+                                uint16_t address;
+                                uint16_t v;
+                                uint8_t size;
+                                uint16_t is_io;
+                                v = pop(c, stack);
+                                address = pop(c, stack);
+                                size = (c->instruction) & 0x03;
+                                is_io = (c->instruction) & 0x40;
+                                if (is_io) {
+                                    if (size == 1) {
+                                        if (address == 0x00) {
+                                            printf("%c", v);
+                                        }
+                                    } else {
+                                        // TODO
+                                    }
+                                } else {
+
+                                    /* TODO */
+                                    c->exception = IllegalInstruction;
+                                    c->keep_going = false;
+                                }
+                            }
                             break;
                         case 0x0D: /* AND */
                             {
@@ -402,7 +433,7 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                                 push(c, stack, r);
                             }
                             break;
-                        case 0x0F:
+                        case 0x0F: /* XOR */
                             {
                                 uint16_t r;
                                 uint16_t v1, v2;
@@ -419,6 +450,51 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                     (c->pc) += 2;
                 }
                 break;
+            case 0xF000:
+                {
+                    uint16_t func = (c->instruction & 0x0F00) >> 8;
+                    struct Stack* stack = &(c->data_stack);
+
+                    switch (func) {
+                        case 0x00: /* NEG */
+                        case 0x01: /* NOT */
+                            // TODO
+                            c->exception = IllegalInstruction;
+                            c->keep_going = false;
+                            break;
+                        case 0x02: /* RD / IRD */
+                            {
+                                uint16_t address;
+                                uint8_t size;
+                                uint16_t is_io;
+
+                                address = pop(c, stack);
+                                size = (c->instruction & 0x03);
+                                is_io = (c->instruction) & 0x40;
+                                if (is_io) {
+                                    if (size == 1) {
+                                        if (address == 0x0000) {
+
+                                        }
+                                    }
+                                    /* TODO */
+                                    c->exception = IllegalInstruction;
+                                    c->keep_going = false;
+                                } else {
+                                    /* TODO */
+                                    c->exception = IllegalInstruction;
+                                    c->keep_going = false;
+                                }
+                            }
+                            break;
+                        default:
+                            // TODO
+                            c->exception = IllegalInstruction;
+                            c->keep_going = false;
+                            break;
+                    }
+                    break;
+                }
             default:
                 c->exception = IllegalInstruction;
                 c->keep_going = false;

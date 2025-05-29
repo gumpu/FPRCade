@@ -1,5 +1,5 @@
 ---
-title: Stackmaster-16 instruction set Version 0.001
+title: Stackmaster-16 Programmer's Manual
 author: Frans Slothouber
 ---
 
@@ -52,6 +52,24 @@ Control: nop halt
 
 BIF ENTER NOP LEAVE HALT DROP DUP SWAP MOV LDL LDH ADDU ADD MUL MULU EQ ASRU
 ASR LTU LT GTU GT LTEU LTE GTEU GTE LSL LSR STO AND OR XOR NEG NOT RD
+RESET
+
+## Memory Map
+
+    0x0000  value to load into PC after reset
+    0x0002  stack overflow exception code
+    0x0004  stack underflow exception code
+    0x0006  illegal instruction exception code
+    0x0008
+
+    0xFFFF
+
+## IO Map
+
+    0x0000  Serial output
+    0x0001  Serial output status
+    0x0002  Serial input
+    0x0003  Serial input status
 
 
 ## Assembly format
@@ -137,60 +155,63 @@ Stack
 List of instructions and opcodes
 
     Bit
-    1111110000000000
-    5432109876543210
-    ||||||||||||||||
-    0000xxxxxxxxxxxx unused
-    0001dddddddddddd BIF     branch if false
-    0010xxxxxxxxxxxx unused
-    0011xxxxxxxxxxxx unused
-    01dddddddddddddd ENTER   Enter a subroutine
-    1000ffffxxxxxxxx
-    .   0000xxxxxxxx NOP
-    .   0001xxxxxxxx LEAVE
-    .   0010xxxxxxxx HALT
-    1001xxxxxxxxxxxx unused
-    1010xxxxxxxxxxxx unused
-    1011ffffssttxxxx Stack operations
-    .   0000         DROP Drop first cell of ss
-    .   0001         DUP  Duplicate first cell of ss
-    .   0010         SWAP Swap first two cells of ss
-    .   0011         MOV  Move from ss to tt
-    1100ssdddddddddd LDL  Load immediate low 10 bits to ss
-    1101ssddddddxxxx LDH  Load immediate high 6 bits to ss
+    1111 1100 0000 0000
+    5432 1098 7654 3210
+    |||| |||| |||| ||||
+    0000 xxxx xxxx xxxx unused
+    0001 dddd dddd dddd BIF     branch if false
+    0010 xxxx xxxx xxxx unused
+    0011 xxxx xxxx xxxx unused
+    01dd dddd dddd dddd ENTER   Enter a subroutine
+    1000 ffff xxxx xxxx
+    .    0000 xxxx xxxx NOP
+    .    0001 xxxx xxxx LEAVE
+    .    0010 xxxx xxxx HALT
+    .    0011 xxxx xxxx RESET
+    1001 xxxx xxxx xxxx unused
+    1010 xxxx xxxx xxxx unused
+    1011 ffff sstt xxxx Stack operations
+    .    0000           DROP Drop first cell of ss
+    .    0001           DUP  Duplicate first cell of ss
+    .    0010           SWAP Swap first two cells of ss
+    .    0011           MOV  Move from ss to tt
+    1100 ssdd dddd dddd LDL  Load immediate low 10 bits to ss
+    1101 ssdd dddd xxxx LDH  Load immediate high 6 bits to ss
 
-    1111110000000000
-    5432109876543210
-    ||||||||||||||||
-    1110fffffxxpxxxx Operates on data stack (2 values)
-    .   00000xx0xxxx ADDU Unsigned 16 bit addition
-    .   00000xx1xxxx ADD  Signed 16 bit addition
-    .   00001xx0xxxx MULU Unsigned 16 bit multiplication
-    .   00001xx1xxxx MUL  Signed 16 bit multiplication
-    .   00010xx0xxxx
-    .   00010xx1xxxx
-    .   00011xxxxxxx EQ   Equal
-    .   00100xx0xxxx
-    .   00100xx1xxxx ASR  Signed shift right, extends sign
-    .   00101xx0xxxx LTU  Unsigned less than
-    .   00101xx1xxxx LT   Signed less than
-    .   00110xx0xxxx GTU  Unsigned greater than
-    .   00110xx1xxxx GT   Signed greater than
-    .   00111xx0xxxx LTEU Unsigned less than or equal
-    .   00111xx1xxxx LTE  Signed less than or equal
-    .   01000xx0xxxx GTEU Unsigned greater than or equal
-    .   01000xx1xxxx GTE  Signed greater than or equal
-    .   01001xxxxxxx LSL  Shift left
-    .   01010xxxxxxx LSR  shift right
-    .   01011xxxxzzz STO  Store one/two/four bytes
-    .   01100xxxxxxx
-    .   01101xxxxxxx AND  16 bit and
-    .   01110xxxxxxx OR   16 bit or
-    .   01111xxxxxxx XOR  16 bit exclusive or
-    1111ffffxxxxxxxx Operates on data stack (1 value)
-    .   0000xxxxxxxx NEG
-    .   0001xxxxxxxx NOT
-    .   0010xxxxxzzz RD   Read one/two/four bytes
+    1111 1100 0000 0000
+    5432 1098 7654 3210
+    |||| |||| |||| ||||
+    1110 ffff fixp xxxx Operates on data stack (2 values)
+    .    0000 0xx0 xxxx ADDU Unsigned 16 bit addition
+    .    0000 0xx1 xxxx ADD  Signed 16 bit addition
+    .    0000 1xx0 xxxx MULU Unsigned 16 bit multiplication
+    .    0000 1xx1 xxxx MUL  Signed 16 bit multiplication
+    .    0001 0xx0 xxxx reserved for DIVU
+    .    0001 0xx1 xxxx reserved for DIV
+    .    0001 1xxx xxxx EQ   Equal
+    .    0010 0xx0 xxxx illegal
+    .    0010 0xx1 xxxx ASR  Signed shift right, extends sign
+    .    0010 1xx0 xxxx LTU  Unsigned less than
+    .    0010 1xx1 xxxx LT   Signed less than
+    .    0011 0xx0 xxxx GTU  Unsigned greater than
+    .    0011 0xx1 xxxx GT   Signed greater than
+    .    0011 1xx0 xxxx LTEU Unsigned less than or equal
+    .    0011 1xx1 xxxx LTE  Signed less than or equal
+    .    0100 0xx0 xxxx GTEU Unsigned greater than or equal
+    .    0100 0xx1 xxxx GTE  Signed greater than or equal
+    .    0100 1xxx xxxx LSL  Shift left
+    .    0101 0xxx xxxx LSR  shift right
+    .    0101 10xx xzzz STO  Store one/two/four bytes
+    .    0101 11xx xzzz ISTO Store one/two/four bytes to IO Port
+    .    0110 0xxx xxxx
+    .    0110 1xxx xxxx AND  16 bit and
+    .    0111 0xxx xxxx OR   16 bit or
+    .    0111 1xxx xxxx XOR  16 bit exclusive or
+    1111 ffff xxxx xxxx Operates on data stack (1 value)
+    .    0000 xxxx xxxx NEG
+    .    0001 xxxx xxxx NOT
+    .    0010 0xxx xzzz RD   Read one/two/four bytes
+    .    0010 1xxx xzzz IRD  Read one/two/four bytes from IO Port
 
 ### Field names
 
@@ -212,10 +233,15 @@ The meaning of the field names is as follows:
       010 2 bytes
       011 illegal
       100 4 bytes
+    i   - 0/1  ram/io-port
+
 
 ## Instruction Details
 
 ### Notation:
+
+The following notation is used do distinguish the various
+value types:
 
 - s1, s2, .., sn  -- signed 16 bit numbers
 - u1, u2, .., un  -- unsigned 16 bit numbers
@@ -350,6 +376,10 @@ LTU  (u1 u2 -- tf)
 
 MOV  (x: x1 -- y: x1)
 
+Example
+
+    MOV R D
+
 ### MUL - Signed multiplication
 
 MUL
@@ -380,27 +410,32 @@ Bitwise or: n3 = n1 | n2
 (n1 n2 -- n3)
 
 
+### IRD - Read n bytes from an IO port
+
 ### RD - Read n bytes from memory
 
-RD.b  (a1 -- n1)
+RD b  (a1 -- n1)
 
-RD.w  (a1 -- n1)
+RD w  (a1 -- n1)
 
-RD.l  (a1 -- n1 n2)
+RD l  (a1 -- n1 n2)
 
 ### STO - Store n bytes in memory
 
-STO.b (n1 a1 -- )
+STO b (n1 a1 -- )
 
 Stores the lower 8 bits of n1 at address a1.
 
-STO.w (n1 a1 -- )
+STO w (n1 a1 -- )
 
 Stores n1 at address locations a1 and a1+1.
 
-STO.l (n1 n2 a1 -- )
+STO l (n1 n2 a1 -- )
 
 Stores n1 and n2 at addresses a1, a1+1, a1+2, and a1+3.
+
+### ISTO - Store n bytes in an IO port
+
 
 ### SWAP - Swap the two top stack elements of the given stack
 

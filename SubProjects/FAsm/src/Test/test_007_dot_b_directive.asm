@@ -1,3 +1,4 @@
+; vi: ft=smasm
 .b 1 2 3 0 10 11 12
 .align l
 .b #1 #2 #3 0 #10 #11 #12
@@ -6,7 +7,9 @@
 .align l
 .b %1 %10 %11 0 %1010 %1011 %1100
 .align l
-.b 'a' 'b' 'c' 'd' 'e' 'f'
+.b 'a' 'b' 'c' 'd' 'e' 'f' '"'
+.align l
+.b 'A' 'B' 'C' 'D' 'E' 'F' '"'
 .align l
 .b -1 -2 -3 0 -10 -11 -12
 .align l

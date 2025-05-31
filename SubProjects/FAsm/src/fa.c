@@ -131,7 +131,7 @@ static unsigned get_word(
     char word[FA_MAX_WORD_SIZE],
     const char line[FA_LINE_BUFFER_SIZE],   // TODO Size does not make sense
     char seperator, int max_len);
-static void init_label_table(symbol_table_type* lt);
+static void init_symbol_table(symbol_table_type* lt);
 static bool find_symbol(
     symbol_table_type* lt, const char* label, uint16_t *address);
 static bool add_symbol(symbol_table_type* lt, char* symbol, uint16_t value);
@@ -267,7 +267,7 @@ static bool is_instruction(const char stripped_line[FA_LINE_BUFFER_SIZE]);
 static void remove_remarks(
     char remark_less_line[FA_LINE_BUFFER_SIZE],
     const char line[FA_LINE_BUFFER_SIZE]);
-static void strip_line(
+static bool strip_line(
     char stripped_line[FA_LINE_BUFFER_SIZE],
     const char line[FA_LINE_BUFFER_SIZE]);
 static bool parse_directive(
@@ -712,12 +712,12 @@ static unsigned get_word(
 
 /* --------------------------------------------------------------------*/
 
-static void init_label_table(symbol_table_type* lt)
+static void init_symbol_table(symbol_table_type* lt)
 {
     lt->number = 0;
 }
 
-/*
+/**
  * Lookup a given label in the symbol table.
  *
  * Returns true if the label was found.
@@ -1308,7 +1308,7 @@ static uint16_t dot_b_generator(
     i = skip_word(line, 0);
     i = skip_spaces(line, i);
 
-    n = get_word(numberstring, &(line[i]), ' ', MAX_INSTRUCTION_NAME_LENGTH);
+    n = get_word(numberstring, &(line[i]), ' ', FA_MAX_WORD_SIZE);
     if (n == 0) {
         /* .b  but no values */
         snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
@@ -1486,7 +1486,7 @@ static uint16_t dot_org_generator(
             } else {
                 if (value > 0xFFFF) {
                     snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
-                            ".org value can not be negative");
+                            ".org value can not be larger than 65535");
                     *error_reason = eFA_AddressError;
                 } else {
                     new_address = (uint16_t)value;
@@ -1627,13 +1627,19 @@ static void remove_remarks(
 
 /**
  * Remove leading and trailing spaces from the line.
- * Make everything, except strings, upper-case.
+ * Make everything, except strings, and character
+ * constants upper-case.
+ *
+ * Checks if strings and character constants are
+ * properly terminated
+ *
  */
-static void strip_line(
+static bool strip_line(
         char stripped_line[FA_LINE_BUFFER_SIZE],
         const char line[FA_LINE_BUFFER_SIZE])
 {
     bool in_string = false;
+    bool in_char_constant = false;
     unsigned i = 0;
     unsigned j = 0;
 
@@ -1641,10 +1647,17 @@ static void strip_line(
     for (; (line[i] != '\0') && isspace(line[i]); ++i);
 
     for (; line[i] != '\0'; ++i) {
-        if (line[i] == '"') {
-            in_string = !in_string;
+        if (!in_char_constant) {
+            if (line[i] == '"') {
+                in_string = !in_string;
+            }
         }
         if (!in_string) {
+            if (line[i] == '\'') {
+                in_char_constant = !in_char_constant;
+            }
+        }
+        if ((!in_string) && (!in_char_constant)) {
             stripped_line[j] = toupper(line[i]);
         } else {
             stripped_line[j] = line[i];
@@ -1659,6 +1672,16 @@ static void strip_line(
             stripped_line[j] = '\0';
         }
     }
+
+    if (in_char_constant) {
+        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                "%s", "unterminated character constant");
+    }
+    if (in_string) {
+        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                "%s", "unterminated string");
+    }
+    return !in_string && !in_char_constant;
 }
 
 /**
@@ -1803,45 +1826,47 @@ static bool assemble(
 
         while ((line != NULL) && all_ok) {
             remove_remarks(remark_less_line_buffer, line_buffer);
-            strip_line(stripped_line_buffer, remark_less_line_buffer);
-
-            if ((list_outpf) && (phase == eFA_Assemble)) {
-                fprintf(list_outpf, "%4d %s", line_no, line_buffer);
-                if (stripped_line_buffer[0] != '\0') {
-                    fprintf(list_outpf, ">\t%s\n", stripped_line_buffer);
+            if (!strip_line(stripped_line_buffer, remark_less_line_buffer)) {
+                /* Unterminated string or char constant */
+            } else {
+                if ((list_outpf) && (phase == eFA_Assemble)) {
+                    fprintf(list_outpf, "%4d %s", line_no, line_buffer);
+                    if (stripped_line_buffer[0] != '\0') {
+                        fprintf(list_outpf, ">\t%s\n", stripped_line_buffer);
+                    }
                 }
-            }
 
-            if (is_label(stripped_line_buffer)) {
-                if (phase == eFA_Scan) {
-                    /* In the first phase we collect label information.  */
-                    all_ok = add_label(
-                            symbol_table, stripped_line_buffer, address);
+                if (is_label(stripped_line_buffer)) {
+                    if (phase == eFA_Scan) {
+                        /* In the first phase we collect label information.  */
+                        all_ok = add_label(
+                                symbol_table, stripped_line_buffer, address);
+                    } else {
+                        /* In the Assemble phase we double check and use
+                         * the collected information.  */
+                        all_ok = check_label(
+                                symbol_table, stripped_line_buffer, address);
+                    }
+                } else if (is_directive(stripped_line_buffer)) {
+                    all_ok = parse_directive(
+                            stripped_line_buffer, line_no,
+                            &address, phase, outpf, list_outpf, symbol_table);
+                } else if (is_instruction(stripped_line_buffer)) {
+                    all_ok = parse_instruction(
+                            stripped_line_buffer, line_no,
+                            &address, phase, outpf, list_outpf, symbol_table);
                 } else {
-                    /* In the Assemble phase we double check and use
-                     * the collected information.  */
-                    all_ok = check_label(
-                            symbol_table, stripped_line_buffer, address);
+                    /* Empty line, do nothing */
                 }
-            } else if (is_directive(stripped_line_buffer)) {
-                all_ok = parse_directive(
-                             stripped_line_buffer, line_no,
-                             &address, phase, outpf, list_outpf, symbol_table);
-            } else if (is_instruction(stripped_line_buffer)) {
-                all_ok = parse_instruction(
-                             stripped_line_buffer, line_no,
-                             &address, phase, outpf, list_outpf, symbol_table);
-            } else {
-                /* Empty line, do nothing */
-            }
 
-            if (all_ok) {
-                /* Get the next line */
-                line = fgets(line_buffer, FA_LINE_BUFFER_SIZE, inpf);
+                if (all_ok) {
+                    /* Get the next line */
+                    line = fgets(line_buffer, FA_LINE_BUFFER_SIZE, inpf);
 
-                ++line_no;
-            } else {
-                break;
+                    ++line_no;
+                } else {
+                    break;
+                }
             }
         }
     }
@@ -1958,7 +1983,7 @@ int main(int argc, char** argv)
             }
 
             if (all_ok) {
-                init_label_table(&symbol_table);
+                init_symbol_table(&symbol_table);
                 all_ok = assemble(inpf, outpf, list_outpf, &symbol_table);
                 if (all_ok && (symbol_file_name[0] != '\0')) {
                     FILE* sym_outpf = fopen(symbol_file_name, "w");

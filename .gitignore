@@ -1,0 +1,4 @@
+*.hex
+.gdb_history
+*.list
+*.sym

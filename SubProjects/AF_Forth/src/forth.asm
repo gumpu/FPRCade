@@ -1,12 +1,12 @@
 ; vi: ft=smasm
 ;
-; Stack Master FORTH system
+; Stack Master 16 FORTH system
 ;
 
-.org $0000
+
+; Boot ROM
+.org $F000
     nop
-    nop
-    nop
-    nop
+    halt
 
 ; -------------------- end of file -----------------------------------------

@@ -19,8 +19,9 @@ syn iskeyword @,48-57,.,_,$,%,#
 syn match   smasmLabel			/[A-Za-z0-9_]\+:/
 syn match   smasmTODO			/\<\(TODO\|FIXME\|NOTE\)\>/ contained
 syn region  smasmCommentSingle	        start=/;/ end=/$/ contains=smasmTODO
-syn keyword smasmDirective		.b .str .w .l .org .align
+syn keyword smasmDirective		.b .str .w .l .org .align .def
 syn region  smasmString			start=/"/  end=/"/ skip=/\\"/
+syn region  smasmChar			start=/'/  end=/'/ skip=/\\'/
 
 " Numbers
 syn match   smasmBinaryNumber		/\<%[01]\+\>/
@@ -38,6 +39,7 @@ hi def link smasmTODO		Todo
 hi def link smasmOpcode		Keyword
 hi def link smasmCommentSingle	Comment
 hi def link smasmString		String
+hi def link smasmChar		Character
 hi def link smasmBinaryNumber	Constant
 hi def link smasmHexNumber	Constant
 hi def link smasmDecimalNumber	Constant

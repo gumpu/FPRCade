@@ -1,8 +1,12 @@
 file ./fa
 
-break 352
+break ldl_generator
+break read_number
 
-set args Test/test_001.asm -l Test/test_001.list
+# set args test_005.asm -l test_005.list
+set args tt.sym
+
+run
 
 tui enable
 

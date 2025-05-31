@@ -5,8 +5,12 @@
     ; Also for directives
 
     .str "123"
+    .str "'test'"
+    .str "0000" "1111"
     .align l
     .str "test"
+    .def test1 42
+    .b 'a' 255 -1 128 0 %1001
 
 ; Label inside a string
 .str "label1:"
@@ -48,5 +52,17 @@ all_opcodes:
     isto b
     isto w
     isto l
+    ldl d %0001
+    ldl r %0001
+    ldl t %0001
+    ldl c %0001
+    ldl c test1
+    or
+    xor
+    and
+    halt
+    eq
+    gt
+;    gtu
 
 ; --------------- end of file ----------------------

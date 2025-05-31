@@ -3,9 +3,10 @@ FA = ../fa
 
 ASMFILES=$(wildcard *.asm)
 HEXFILES=$(ASMFILES:%.asm=%.hex)
+SYMFILES=$(ASMFILES:%.asm=%.sym)
 
 %.hex : %.asm
-	$(FA) $< -o $@ -l $(@:%.hex=%.list)
+	$(FA) $< -o $@ -l $(@:%.hex=%.list) -s  $(@:%.hex=%.sym)
 
 all : $(HEXFILES)
 	echo 'done'
@@ -15,5 +16,6 @@ all : $(HEXFILES)
 clean :
 	-rm -f *.list
 	-rm -f *.hex
+	-rm -f *.sym
 
 # --------------- end of file -----------------------------------------

@@ -1,4 +1,4 @@
-.code
+.org 0
     nop
     nop
     nop

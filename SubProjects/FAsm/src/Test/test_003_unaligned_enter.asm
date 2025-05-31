@@ -1,4 +1,4 @@
-.code
+.org $C000
     enter routine1
     halt
 

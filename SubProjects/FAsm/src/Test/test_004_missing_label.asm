@@ -1,4 +1,6 @@
-.org $B000
-    ldl $00FF
+.org $c000
+    enter
+    halt
+end:
 
 ; --------------- end of file ----------------------

@@ -7,15 +7,14 @@ author: Frans Slothouber
 # Introduction
 
 Stackmaster-16 is a 16 bit stack based processor. It was designed to make
-it easy to build a Forth system with it.
+it easy to build a Forth system.
 
 The processor is little endian.  All instructions are 16 Bit.  Bits 15 to 12
 indicate the instruction category, the remaining bits are used to encode the
 function, stack id, signed/unsigned, and/or values.
 
-The processor has four stacks for: data, return addresses, control data, and
-temporary values.  They are indicated by the letters:  D, R, C, and T.
-
+The processor has four stacks. One for data, return addresses, control data, and
+temporary values.  These are indicated by the letters:  D, R, C, and T.
 The stack depths are:
 
 - Data, 8 deep
@@ -56,13 +55,19 @@ RESET
 
 ## Memory Map
 
-    0x0000  value to load into PC after reset
-    0x0002  stack overflow exception code
-    0x0004  stack underflow exception code
-    0x0006  illegal instruction exception code
+    Page 0
+    0x0000  value to load into PC after warm reset
+    0x0002  pointer to stack overflow exception code
+    0x0004  pointer to stack underflow exception code
+    0x0006  pointer to illegal instruction exception code
     0x0008
+    0x00FF
 
-    0xFFFF
+    0x0100  User RAM (61184 bytes)
+    0xEFFF  End of user RAM
+
+    0xF000  Boot ROM  (4K)
+    0xFFFF  End of Boot ROM
 
 ## IO Map
 
@@ -70,7 +75,8 @@ RESET
     0x0001  Serial output status
     0x0002  Serial input
     0x0003  Serial input status
-
+    0x0100  Graphics RAM
+    0xFFFF
 
 ## Assembly format
 
@@ -102,6 +108,15 @@ The following is an example
     end:
 
     .str "some string"
+
+### Directives
+
+    .str
+    .align
+    .b
+    .w
+    .l
+    .def
 
 ### Align
 
@@ -412,6 +427,12 @@ Bitwise or: n3 = n1 | n2
 
 ### IRD - Read n bytes from an IO port
 
+IRD b  (a1 -- n1)
+
+IRD w  (a1 -- n1)
+
+IRD l  (a1 -- n1 n2)
+
 ### RD - Read n bytes from memory
 
 RD b  (a1 -- n1)
@@ -440,6 +461,9 @@ Stores n1 and n2 at addresses a1, a1+1, a1+2, and a1+3.
 ### SWAP - Swap the two top stack elements of the given stack
 
 SWAP (n1 n2 -- n2 n1)
+
+### RESET
+
 
 ### XOR - Exclusive Or
 

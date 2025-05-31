@@ -114,7 +114,6 @@ typedef struct directive_generator {
 
 /* --------------------------------------------------------------------*/
 
-
 static void report_error(enum FA_ErrorReason reason, char* line, int line_no);
 static enum FA_SizeID get_size_id(char c);
 static enum FA_StackID get_stack_id(char c);
@@ -130,10 +129,12 @@ static unsigned skip_word(const char line[FA_LINE_BUFFER_SIZE], unsigned n);
 static unsigned skip_spaces(const char line[FA_LINE_BUFFER_SIZE], unsigned n);
 static unsigned get_word(
     char word[FA_MAX_WORD_SIZE],
-    const char line[FA_LINE_BUFFER_SIZE], char seperator, int max_len);
+    const char line[FA_LINE_BUFFER_SIZE],   // TODO Size does not make sense
+    char seperator, int max_len);
 static void init_label_table(symbol_table_type* lt);
 static bool find_symbol(
     symbol_table_type* lt, const char* label, uint16_t *address);
+static bool add_symbol(symbol_table_type* lt, char* symbol, uint16_t value);
 static bool add_label(
     symbol_table_type* lt,
     const char line[FA_LINE_BUFFER_SIZE], uint16_t address);
@@ -245,6 +246,11 @@ static uint16_t dot_l_generator(
     FILE* outpf, FILE* listf, uint16_t address,
     symbol_table_type* table,
     enum FA_Phase  phase, enum FA_ErrorReason* error_reason);
+static uint16_t dot_def_generator(
+    const char line[FA_LINE_BUFFER_SIZE],
+    FILE* outpf, FILE* listf, uint16_t address,
+    symbol_table_type* table,
+    enum FA_Phase  phase, enum FA_ErrorReason* error_reason);
 static uint16_t dot_org_generator(
     const char line[FA_LINE_BUFFER_SIZE],
     FILE* outpf, FILE* listf, uint16_t address,
@@ -282,7 +288,8 @@ static void parse_options(
     int argc,
     char** argv,
     char* output_file_name,
-    char* listing_file_name);
+    char* listing_file_name,
+    char* symbol_file_name);
 
 /* --------------------------------------------------------------------*/
 
@@ -734,6 +741,15 @@ static bool find_symbol(
     return found;
 }
 
+void dump_symbol_table(symbol_table_type* lt, FILE* outpf)
+{
+    int n = lt->number;
+    for (unsigned i = 0; i < n; ++i) {
+        fprintf(outpf, ".def %s $%04x\n",
+                lt->symbols[i].symbol,
+                lt->symbols[i].value);
+    }
+}
 
 /**
  * Adds a symbol and the corresponding value to the symbol table.
@@ -1361,62 +1377,77 @@ static uint16_t dot_def_generator(
     symbol_table_type* table,
     enum FA_Phase  phase, enum FA_ErrorReason* error_reason)
 {
-    unsigned i;
-    unsigned n;
-    char symbolstring[FA_MAX_SYMBOL_SIZE];
-    char numberstring[FA_MAX_WORD_SIZE];
-
-    i = skip_word(line, 0);
-    i = skip_spaces(line, i);
-    n = get_word(symbolstring, &(line[i]), ' ', FA_MAX_SYMBOL_SIZE);
-
-    if (n == 0) {
-        /* .def  but no symbol */
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
-                ".def needs a symbol name");
-        *error_reason = eFA_Syntax_Error;
-    } else if (n >= FA_MAX_SYMBOL_SIZE) {
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
-                ".def symbol name is too long");
-        *error_reason = eFA_Syntax_Error;
+    if (phase != eFA_Scan) {
+        /* Do nothing */
     } else {
+        unsigned i;
+        unsigned n;
+        char symbolstring[FA_MAX_SYMBOL_SIZE];
+        char numberstring[FA_MAX_WORD_SIZE];
+
+        i = skip_word(line, 0);
         i = skip_spaces(line, i);
-        n = get_word(numberstring, &(line[i]), ' ', FA_MAX_WORD_SIZE);
+        if (line[i] != '\0') {
+            n = get_word(symbolstring, &(line[i]), ' ', FA_MAX_SYMBOL_SIZE);
+        } else {
+            n = 0;
+        }
+
         if (n == 0) {
+            /* .def  but no symbol */
             snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
-                    ".def needs a value");
+                    ".def needs a symbol name");
             *error_reason = eFA_Syntax_Error;
-        } else if (n == FA_MAX_WORD_SIZE) {
+        } else if (n >= FA_MAX_SYMBOL_SIZE) {
             snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
-                    "number is too long");
+                    ".def symbol name is too long");
             *error_reason = eFA_Syntax_Error;
         } else {
-            bool is_negative;
-            int64_t value;
-            if (read_number(
-                        numberstring, &value, table,
-                        error_reason, &is_negative)) {
-                if (value > 65535) {
-                    snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
-                            "value is too big");
-                    *error_reason = eFA_Syntax_Error;
-                } else {
-                    if (value < -32768) {
+            /* Skip symbol name */
+            i = skip_word(line, i);
+            i = skip_spaces(line, i);
+            if (line[i] != '\0') {
+                /* Read the number */
+                n = get_word(numberstring, &(line[i]), ' ', FA_MAX_WORD_SIZE);
+            } else {
+                n = 0;
+            }
+            if (n == 0) {
+                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+                        ".def needs a value");
+                *error_reason = eFA_Syntax_Error;
+            } else if (n == FA_MAX_WORD_SIZE) {
+                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+                        "number is too long");
+                *error_reason = eFA_Syntax_Error;
+            } else {
+                bool is_negative;
+                int64_t value;
+                if (read_number(
+                            numberstring, &value, table,
+                            error_reason, &is_negative)) {
+                    if (value > 65535) {
                         snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
-                                "value is too small");
+                                "value is too big");
                         *error_reason = eFA_Syntax_Error;
                     } else {
-                        if (add_symbol(table, symbolstring, value)) {
-
-                        } else {
+                        if (value < -32768) {
+                            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+                                    "value is too small");
                             *error_reason = eFA_Syntax_Error;
+                        } else {
+                            if (add_symbol(table, symbolstring, value)) {
+
+                            } else {
+                                *error_reason = eFA_Syntax_Error;
+                            }
                         }
                     }
+                } else {
+                    snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+                            "Malformed number");
+                    *error_reason = eFA_Syntax_Error;
                 }
-            } else {
-                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
-                        "Malformed number");
-                *error_reason = eFA_Syntax_Error;
             }
         }
     }
@@ -1928,13 +1959,20 @@ int main(int argc, char** argv)
 
             if (all_ok) {
                 init_label_table(&symbol_table);
-                assemble(inpf, outpf, list_outpf, &symbol_table);
+                all_ok = assemble(inpf, outpf, list_outpf, &symbol_table);
+                if (all_ok && (symbol_file_name[0] != '\0')) {
+                    FILE* sym_outpf = fopen(symbol_file_name, "w");
+                    if (sym_outpf == NULL) {
+                        perror("Symbol table fopen:");
+                    } else {
+                        dump_symbol_table(&symbol_table, sym_outpf);
+                        fclose(sym_outpf);
+                    }
+                }
             }
 
             if (inpf != NULL) { fclose(inpf); }
-
             if (list_outpf != NULL) { fclose(list_outpf); }
-
             if (outpf != NULL) { fclose(outpf); }
 
         } else {

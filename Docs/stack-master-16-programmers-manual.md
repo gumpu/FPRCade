@@ -191,7 +191,7 @@ List of instructions and opcodes
     .    0010           SWAP Swap first two cells of ss
     .    0011           MOV  Move from ss to tt
     1100 ssdd dddd dddd LDL  Load immediate low 10 bits to ss
-    1101 ssdd dddd xxxx LDH  Load immediate high 6 bits to ss
+    1101 ssxx xxdd dddd LDH  Load immediate high 6 bits to ss
 
     1111 1100 0000 0000
     5432 1098 7654 3210

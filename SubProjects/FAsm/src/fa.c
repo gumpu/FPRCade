@@ -11,20 +11,22 @@
 #include <getopt.h>
 #include <assert.h>
 
-#define FA_MAX_WORD_SIZE 32
-#define FA_LINE_BUFFER_SIZE 1024
-#define FA_MAX_SYMBOL_SIZE 32
+#define FA_MAX_WORD_SIZE (32)
+#define FA_LINE_BUFFER_SIZE (1024)
+#define FA_MAX_SYMBOL_SIZE (32)
 // TODO Need prefix FA
-#define MAX_DIRECTIVE_NAME_LENGTH 32
-#define MAX_INSTRUCTION_NAME_LENGTH 32
-#define MAX_NUMBER_OF_SYMBOLS 1024
-#define MAX_ERROR_MESSAGE_LENGTH 1024
+#define MAX_DIRECTIVE_NAME_LENGTH (32)
+#define MAX_INSTRUCTION_NAME_LENGTH (32)
+#define MAX_NUMBER_OF_SYMBOLS (1024)
+#define MAX_ERROR_MESSAGE_LENGTH (1024)
 
 #define FA_MAX_OUTPUT_FILENAME_LENGTH (5*80)
 #define FA_MAX_LISTING_FILENAME_LENGTH (5*80)
 #define FA_MAX_SYMBOL_FILENAME_LENGTH (5*80)
 
-#define HEX_MAX_BUFFER_SIZE 16
+#define FA_MAX_NUMBER_OF_PARSED_WORDS (6)
+
+#define HEX_MAX_BUFFER_SIZE (16)
 
 /* --------------------------------------------------------------------*/
 /* Valid stack IDs fit in two bits */
@@ -64,10 +66,15 @@ enum FA_ErrorReason {
 
 /* --------------------------------------------------------------------*/
 
+typedef struct parsed_words {
+    uint16_t number_of_words;
+    char* words[FA_MAX_NUMBER_OF_PARSED_WORDS];
+} parsed_line_type;
+
 typedef struct symbol_value_pair {
     char symbol[FA_MAX_SYMBOL_SIZE];
     uint16_t value;
-} symbol_value_pair_t;
+} symbol_value_pair_type;
 
 /**
  * Lookup table to match symbols to the corresponding
@@ -75,14 +82,14 @@ typedef struct symbol_value_pair {
  */
 typedef struct symbol_table {
     uint16_t number;
-    symbol_value_pair_t symbols[MAX_NUMBER_OF_SYMBOLS];
+    symbol_value_pair_type symbols[MAX_NUMBER_OF_SYMBOLS];
 } symbol_table_type;
 
 /**
  * TODO
  */
 typedef uint16_t instruction_callback_type(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf,
     FILE* listf,
     uint16_t address, symbol_table_type* table,
@@ -113,6 +120,7 @@ typedef struct directive_generator {
 } directive_generator_type;
 
 /* --------------------------------------------------------------------*/
+
 
 static void report_error(enum FA_ErrorReason reason, char* line, int line_no);
 static enum FA_SizeID get_size_id(char c);
@@ -145,86 +153,86 @@ static bool check_label(
 static void emit_code(
     FILE* outpf, FILE* listf, uint16_t address, uint16_t instruction);
 static uint16_t leave_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t enter_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t nop_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t halt_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t ldl_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t xor_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t or_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t and_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t eq_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t rd_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t sto_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t ird_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t isto_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t rd_sto_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf,
     FILE* listf,
     uint16_t address,
     enum FA_ErrorReason* reason,
     uint16_t opcode);
 static uint16_t lt_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t gt_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t add_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t neg_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t dup_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t bif_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
 static uint16_t dot_str_generator(
@@ -276,13 +284,19 @@ static bool parse_directive(
     FILE* outpf, FILE* listf,
     symbol_table_type* symbol_table);
 static bool parse_instruction(
-    const char line[FA_LINE_BUFFER_SIZE], int line_no,
+    parsed_line_type* parsed_line,
+    int line_no,
     uint16_t* address, enum FA_Phase  phase,
     FILE* outpf,
     FILE* list_outpf,
     symbol_table_type* symbol_table);
 static bool assemble(
-    FILE* inpf, FILE* outpf, FILE* list_outpf, symbol_table_type* symbol_table);
+    FILE* inpf, FILE* outpf, FILE* list_outpf,
+    symbol_table_type* symbol_table,
+    parsed_line_type* parsed_line);
+static bool parse_line_into_words(parsed_line_type* parsed_line, char* line);
+static void init_parsed_line(parsed_line_type* parsed_line) ;
+static void free_parsed_line(parsed_line_type* parsed_line) ;
 static void display_usage(void);
 static void parse_options(
     int argc,
@@ -370,7 +384,9 @@ int hex_set_start_address(uint16_t address)
     return address;
 }
 
-/* TODO: Documentation */
+/**
+ * TODO: Documentation
+ */
 int hex_push_byte(FILE* outpf, uint8_t byte)
 {
     int result = 0;
@@ -486,8 +502,6 @@ static int16_t to_digit(char c, uint16_t base)
 
     return d;
 }
-
-
 
 /**
  * Given a word returns the number it represents
@@ -859,7 +873,7 @@ static void emit_code(
 /* Generators */
 
 static uint16_t leave_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
@@ -868,26 +882,23 @@ static uint16_t leave_generator(
 }
 
 static uint16_t enter_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
     uint16_t new_address = address;
-    unsigned i = 0;
-    i = skip_word(line, i);
-    i = skip_spaces(line, i);
 
-    if (line[i] == '\0') {
+    if (parsed_line->number_of_words < 2) {
         snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                 "%s", "missing label");
         *reason = eFA_Syntax_Error;
     } else {
         uint16_t location;
-        if (find_symbol(table, &(line[i]), &location)) {
+        if (find_symbol(table, parsed_line->words[1], &location)) {
             if (location & 0x03) {
                 snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                         "destination address, %s (%04x), is not aligned",
-                        &(line[i]), location);
+                        parsed_line->words[1], location);
                 *reason = eFA_AddressError;
             } else {
                 uint16_t instruction;
@@ -908,7 +919,7 @@ static uint16_t enter_generator(
 }
 
 static uint16_t nop_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
@@ -917,7 +928,7 @@ static uint16_t nop_generator(
 }
 
 static uint16_t halt_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
@@ -928,70 +939,66 @@ static uint16_t halt_generator(
 /**
  * Handles:
  *
- * LDL d 0x00000
- * LDL r 0x00000
- * LDL c 0x00000
- * LDL t 0x00000
+ * LDH/L d 0x00000
+ * LDH/L r 0x00000
+ * LDH/L c 0x00000
+ * LDH/L t 0x00000
  *
  */
-static uint16_t ldl_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
-    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
-    enum FA_ErrorReason* reason)
+
+static uint16_t ldx_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address,
+    symbol_table_type* table,
+    enum FA_ErrorReason* reason,
+    uint16_t opcode,
+    uint16_t limit)
 {
     uint16_t new_address = address;
-    unsigned i;
-
-    i = skip_word(line, 0);
-    i = skip_spaces(line, i);
-
-    if (line[i] == '\0') {
+    if (parsed_line->number_of_words < 2) {
         snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                  "%s", "missing destination and value");
         *reason = eFA_Syntax_Error;
     } else {
-        uint16_t used_value;
-        int64_t value;
-        char destination = line[i];
-        if (line[i+1] == '\0') {
+        char destination = (parsed_line->words[1])[0];
+        uint16_t destination_bits = get_stack_id(destination);
+
+        if (strlen(parsed_line->words[1]) > 1) {
             snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
-                     "%s", "missing value");
-            *reason = eFA_Syntax_Error;
-        } else if (!isspace(line[i+1])) {
-            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
-                     "%s", "malformed stack ID");
+                    "%s", "malformed or missing stack ID");
+            *reason = eFA_StackID_Error;
+        } else if (destination_bits == eSID_Unknown) {
+            snprintf(error_message,
+                    MAX_ERROR_MESSAGE_LENGTH, "%s", "unknown stack ID");
             *reason = eFA_StackID_Error;
         } else {
-            uint16_t bits = get_stack_id(destination);
-            if (bits == eSID_Unknown) {
-                snprintf(error_message,
-                        MAX_ERROR_MESSAGE_LENGTH, "%s", "unknown stack ID");
-                *reason = eFA_StackID_Error;
+            if (parsed_line->number_of_words < 3) {
+                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                         "%s", "missing value");
+                *reason = eFA_Syntax_Error;
             } else {
-                i = skip_word(line, i);
-                i = skip_spaces(line, i);
-                if (line[i] != '\0') {
-                    bool is_negative;
-                    char numberstring[FA_MAX_WORD_SIZE];
-                    get_word(numberstring, &(line[i]), ' ', FA_MAX_WORD_SIZE);
-                    if (read_number(numberstring, &value, table, reason, &is_negative)) {
-                        assert(*reason == eFA_AllOk);
-                        if ((value < 0) || (value > 1023) || is_negative) {
-                             snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
-                                     "%s", "value does not fit");
-                            *reason = eFA_Syntax_Error;
-                        } else {
-                            uint16_t instruction = 0xC000;
-                            used_value = (uint16_t)value;
-                            instruction |= used_value;
-                            instruction |= (bits << 10);
-                            emit_code(outpf, listf, address, instruction);
-                            new_address += 2;
-                        }
+                bool is_negative;
+                char* number = parsed_line->words[2];
+                uint16_t used_value;
+                int64_t value;
+                if (read_number(number, &value, table, reason, &is_negative)) {
+                    assert(*reason == eFA_AllOk);
+
+                    if ((value < 0) || (value > limit) || is_negative) {
+                        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                                "%s", "value does not fit");
+                        *reason = eFA_Syntax_Error;
                     } else {
-                        /* There was some error reading the number */
-                        assert(*reason != eFA_AllOk);
+                        uint16_t instruction = opcode;
+                        used_value = (uint16_t)value;
+                        instruction |= used_value;
+                        instruction |= (destination_bits << 10);
+                        emit_code(outpf, listf, address, instruction);
+                        new_address += 2;
                     }
+                } else {
+                    /* There was some error reading the number */
+                    assert(*reason != eFA_AllOk);
                 }
             }
         }
@@ -999,8 +1006,32 @@ static uint16_t ldl_generator(
     return new_address;
 }
 
+/**
+ * LDL
+ */
+static uint16_t ldl_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    return ldx_generator(
+            parsed_line, outpf, listf, address, table, reason, 0xC000, 1023);
+}
+
+/**
+ * LDH
+ */
+static uint16_t ldh_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    return ldx_generator(
+            parsed_line, outpf, listf, address, table, reason, 0xD000, 63);
+}
+
 static uint16_t xor_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
@@ -1009,7 +1040,7 @@ static uint16_t xor_generator(
 }
 
 static uint16_t or_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
@@ -1018,7 +1049,7 @@ static uint16_t or_generator(
 }
 
 static uint16_t and_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
@@ -1027,7 +1058,7 @@ static uint16_t and_generator(
 }
 
 static uint16_t eq_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
@@ -1040,11 +1071,11 @@ static uint16_t eq_generator(
  * RD
  */
 static uint16_t rd_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
-    return rd_sto_generator(line, outpf, listf, address, reason, 0xF200);
+    return rd_sto_generator(parsed_line, outpf, listf, address, reason, 0xF200);
 }
 
 
@@ -1052,22 +1083,22 @@ static uint16_t rd_generator(
  * STO
  */
 static uint16_t sto_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
-    return rd_sto_generator(line, outpf, listf, address, reason, 0xE580);
+    return rd_sto_generator(parsed_line, outpf, listf, address, reason, 0xE580);
 }
 
 /**
  * IRD
  */
 static uint16_t ird_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
-    return rd_sto_generator(line, outpf, listf, address, reason, 0xF280);
+    return rd_sto_generator(parsed_line, outpf, listf, address, reason, 0xF280);
 }
 
 
@@ -1075,11 +1106,11 @@ static uint16_t ird_generator(
  * ISTO
  */
 static uint16_t isto_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
-    return rd_sto_generator(line, outpf, listf, address, reason, 0xE5C0);
+    return rd_sto_generator(parsed_line, outpf, listf, address, reason, 0xE5C0);
 }
 
 
@@ -1087,24 +1118,21 @@ static uint16_t isto_generator(
  *
  */
 static uint16_t rd_sto_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf,
     FILE* listf,
     uint16_t address,
     enum FA_ErrorReason* reason,
     uint16_t opcode)
 {
-    unsigned i;
-
-    i = skip_word(line, 0);
-    i = skip_spaces(line, i);
-
-    if (line[i] == '\0') {
+    if (parsed_line->number_of_words < 2) {
         snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                  "%s", "missing size indicator");
         *reason = eFA_Syntax_Error;
     } else {
-        enum FA_SizeID size = get_size_id(line[i]);
+        char size_char = parsed_line->words[1][0];
+        enum FA_SizeID size = get_size_id(size_char);
+
         if (size == eSZ_Unknown) {
             snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                     "%s", "unknown size indicator");
@@ -1118,7 +1146,7 @@ static uint16_t rd_sto_generator(
 
 
 static uint16_t lt_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
@@ -1127,7 +1155,7 @@ static uint16_t lt_generator(
 }
 
 static uint16_t gt_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
@@ -1136,7 +1164,7 @@ static uint16_t gt_generator(
 }
 
 static uint16_t add_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
@@ -1145,7 +1173,7 @@ static uint16_t add_generator(
 }
 
 static uint16_t neg_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
@@ -1154,19 +1182,18 @@ static uint16_t neg_generator(
 }
 
 static uint16_t dup_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
     uint16_t new_address = address;
-    unsigned i = 0;
-    i = skip_word(line, i);
-    i = skip_spaces(line, i);
-    if (line[i] == '\0') {
+
+    if (parsed_line->number_of_words < 2) {
         snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                  "%s", "no destination");
     } else {
-        char destination = line[i];
+        char destination = parsed_line->words[1][0];
+
         uint16_t bits = get_stack_id(destination);
         if (bits == 0x7) {
             snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
@@ -1181,22 +1208,20 @@ static uint16_t dup_generator(
 }
 
 static uint16_t bif_generator(
-    const char line[FA_LINE_BUFFER_SIZE],
+    parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
     uint16_t new_address = address;
-    unsigned i = 0;
-    i = skip_word(line, i);
-    i = skip_spaces(line, i);
-    if (line[i] == '\0') {
+    if (parsed_line->number_of_words < 2) {
         snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                  "%s", "missing label");
     } else {
         uint16_t location;
-        if (find_symbol(table, &(line[i]), &location)) {
+        if (find_symbol(table, parsed_line->words[1], &location)) {
             uint16_t instruction;
             int16_t  delta;
+
             instruction = 0x1000;
             delta = location - new_address;
             instruction |= delta & 0x0FFF;
@@ -1217,6 +1242,7 @@ static instruction_generator_type instruction_generators[] = {
     {"NOP",   nop_generator,   2},
     {"HALT",  halt_generator,  2},
     {"LDL",   ldl_generator,   2},
+    {"LDH",   ldh_generator,   2},
     {"LT",    lt_generator,    2},
     {"GT",    gt_generator,    2},
     {"BIF",   bif_generator,   2},
@@ -1730,70 +1756,65 @@ static bool parse_directive(
  */
 
 static bool parse_instruction(
-    const char line[FA_LINE_BUFFER_SIZE], int line_no,
+    parsed_line_type* parsed_line,
+    int line_no,
     uint16_t* address, enum FA_Phase  phase,
     FILE* outpf,
     FILE* list_outpf,
     symbol_table_type* symbol_table)
 {
+    unsigned i;
     bool all_ok = true;
-    unsigned n;
-    char name[MAX_INSTRUCTION_NAME_LENGTH];
 
-    n = get_word(name, line, ' ', MAX_INSTRUCTION_NAME_LENGTH);
+    /* First word on the line is the instruction */
+    char* name = parsed_line->words[0];
 
-    if (n == MAX_INSTRUCTION_NAME_LENGTH) {
-        snprintf(error_message,
-                MAX_ERROR_MESSAGE_LENGTH, "%s", "instruction too long");
-        all_ok = false;
-    } else {
-        unsigned i;
-        if (phase == eFA_Scan) {
-            for (i = 0; instruction_generators[i].generator != NULL; i++)
-            {
-                char* instr_name = instruction_generators[i].instruction_name;
-                if (strcmp(name, instr_name) == 0) {
-                    *address += instruction_generators[i].byte_count;
-                    break;
-                }
-            }
-        } else {
-            enum FA_ErrorReason error_reason = eFA_AllOk;
-
-            for (i = 0; instruction_generators[i].generator != NULL; i++)
-            {
-                char* instr_name = instruction_generators[i].instruction_name;
-                if (strcmp(name, instr_name) == 0) {
-                    uint16_t new_address;
-
-                    new_address = instruction_generators[i].generator(
-                                      line, outpf, list_outpf,
-                                      *address, symbol_table,
-                                      &error_reason);
-
-                    if (error_reason != eFA_AllOk) {
-                        all_ok = false;
-                    } else {
-                        uint16_t delta;
-
-                        delta = new_address - (*address);
-                        if (delta != instruction_generators[i].byte_count) {
-                            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
-                                     "%s", "internal error");
-                            all_ok = false;
-                        }
-                    }
-                    *address = new_address;
-                    break;
-                }
+    if (phase == eFA_Scan) {
+        for (i = 0; instruction_generators[i].generator != NULL; i++)
+        {
+            char* instr_name = instruction_generators[i].instruction_name;
+            if (strcmp(name, instr_name) == 0) {
+                *address += instruction_generators[i].byte_count;
+                break;
             }
         }
-        if (instruction_generators[i].generator == NULL) {
-            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
-                     "%s: %s", "unknown instruction", name);
-            all_ok = false;
+    } else {
+        enum FA_ErrorReason error_reason = eFA_AllOk;
+
+        for (i = 0; instruction_generators[i].generator != NULL; i++)
+        {
+            char* instr_name = instruction_generators[i].instruction_name;
+            if (strcmp(name, instr_name) == 0) {
+                uint16_t new_address;
+
+                new_address = instruction_generators[i].generator(
+                        parsed_line, outpf, list_outpf,
+                        *address, symbol_table,
+                        &error_reason);
+
+                if (error_reason != eFA_AllOk) {
+                    all_ok = false;
+                } else {
+                    uint16_t delta;
+
+                    delta = new_address - (*address);
+                    if (delta != instruction_generators[i].byte_count) {
+                        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                                "%s", "internal error");
+                        all_ok = false;
+                    }
+                }
+                *address = new_address;
+                break;
+            }
         }
     }
+    if (instruction_generators[i].generator == NULL) {
+        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                "%s: %s", "unknown instruction", name);
+        all_ok = false;
+    }
+
     return all_ok;
 }
 
@@ -1805,7 +1826,9 @@ static bool parse_instruction(
  */
 
 static bool assemble(
-    FILE* inpf, FILE* outpf, FILE* list_outpf, symbol_table_type* symbol_table)
+    FILE* inpf, FILE* outpf, FILE* list_outpf,
+    symbol_table_type* symbol_table,
+    parsed_line_type* parsed_line)
 {
     bool all_ok = true;
     uint16_t address;
@@ -1852,9 +1875,13 @@ static bool assemble(
                             stripped_line_buffer, line_no,
                             &address, phase, outpf, list_outpf, symbol_table);
                 } else if (is_instruction(stripped_line_buffer)) {
-                    all_ok = parse_instruction(
-                            stripped_line_buffer, line_no,
-                            &address, phase, outpf, list_outpf, symbol_table);
+                    if (parse_line_into_words(parsed_line, stripped_line_buffer)) {
+                        all_ok = parse_instruction(
+                                parsed_line, line_no,
+                                &address, phase, outpf, list_outpf, symbol_table);
+                    } else {
+
+                    }
                 } else {
                     /* Empty line, do nothing */
                 }
@@ -1883,6 +1910,54 @@ static bool assemble(
     return all_ok;
 }
 
+static bool parse_line_into_words(parsed_line_type* parsed_line, char* line)
+{
+    parsed_line->number_of_words = 0;
+    unsigned n;
+    unsigned k = 0;
+    bool is_ok = true;
+    unsigned i = 0;
+
+    assert(line[i] != '\0');
+
+    do {
+        assert(line[i] != ' ');
+        n = get_word(parsed_line->words[k], &(line[i]), ' ', FA_MAX_WORD_SIZE);
+        if (n == FA_MAX_WORD_SIZE) {
+            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                 "%s", "Word is too long");
+            is_ok = false;
+            break;
+        } else {
+            ++k;
+            i += n;
+            i = skip_spaces(line, i);
+        }
+    } while ((k < FA_MAX_NUMBER_OF_PARSED_WORDS) && (line[i] != '\0'));
+
+    if ((k == FA_MAX_NUMBER_OF_PARSED_WORDS) && (line[i] != '\0')) {
+        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                 "%s", "Too many words on an instruction line");
+
+        is_ok = false;
+    }
+
+    parsed_line->number_of_words = k;
+
+    return is_ok;
+}
+
+static void init_parsed_line(parsed_line_type* parsed_line) {
+    for (unsigned i = 0; i < FA_MAX_NUMBER_OF_PARSED_WORDS; ++i) {
+        parsed_line->words[i] = malloc(FA_MAX_WORD_SIZE);
+    }
+}
+
+static void free_parsed_line(parsed_line_type* parsed_line) {
+    for (unsigned i = 0; i < FA_MAX_NUMBER_OF_PARSED_WORDS; ++i) {
+        free(parsed_line->words[i]);
+    }
+}
 
 static void display_usage(void)
 {
@@ -1895,7 +1970,6 @@ static void display_usage(void)
            "     -s <filename>  Also produce a symbol file\n"
           );
 }
-
 
 /**
  *
@@ -1942,6 +2016,7 @@ int main(int argc, char** argv)
     FILE* list_outpf = NULL;
 
     static symbol_table_type symbol_table;
+    static parsed_line_type parsed_line;
 
     if (argc <= 1) {
         fprintf(stderr, "Nothing to assemble\n");
@@ -1950,6 +2025,8 @@ int main(int argc, char** argv)
         static char output_file_name[FA_MAX_OUTPUT_FILENAME_LENGTH + 2];
         static char listing_file_name[FA_MAX_LISTING_FILENAME_LENGTH + 2];
         static char symbol_file_name[FA_MAX_SYMBOL_FILENAME_LENGTH + 2];
+
+        init_parsed_line(&parsed_line);
 
         parse_options(
                 argc, argv,
@@ -1984,7 +2061,8 @@ int main(int argc, char** argv)
 
             if (all_ok) {
                 init_symbol_table(&symbol_table);
-                all_ok = assemble(inpf, outpf, list_outpf, &symbol_table);
+                all_ok = assemble(
+                        inpf, outpf, list_outpf, &symbol_table, &parsed_line);
                 if (all_ok && (symbol_file_name[0] != '\0')) {
                     FILE* sym_outpf = fopen(symbol_file_name, "w");
                     if (sym_outpf == NULL) {
@@ -2003,6 +2081,8 @@ int main(int argc, char** argv)
         } else {
             perror("input fopen:");
         }
+
+        free_parsed_line(&parsed_line);
     }
 
     return EXIT_SUCCESS;

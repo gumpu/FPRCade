@@ -3,6 +3,11 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <getopt.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <assert.h>
+
 
 #define MEMORY_SIZE 65536
 #define DSTACK_SIZE 16
@@ -10,6 +15,7 @@
 #define CSTACK_SIZE 32
 #define TSTACK_SIZE 16
 #define MAX_STACK_SIZE 64
+#define FPEM_MAX_FILENAME_LEN 255
 
 /* Stack IDs */
 #define DATA_STACK    0x00
@@ -48,6 +54,8 @@ struct CPU_Context {
     struct Stack temp_stack;
     uint16_t pc;
     uint16_t instruction;
+    int fd_in;
+    int fd_out;
 };
 
 static uint8_t* memory = NULL;
@@ -275,9 +283,16 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                     (c->pc) += 2;
                 }
                 break;
-            case 0xD000: /* TODO Load: LDH */
-                c->exception = IllegalInstruction;
-                c->keep_going = false;
+            case 0xD000: /* Load: LDH */
+                {
+                    struct Stack* stack;
+                    uint16_t stack_id = (c->instruction & 0x0C00) >> 10;
+                    uint16_t high_bits_value = (c->instruction & 0x003F);
+                    stack = get_stack(c, stack_id);
+                    value = pop(c, stack);
+                    value = value | (high_bits_value << 10);
+                    push(c, stack, value);
+                }
                 break;
             case 0xE000: /* 2 value operators */
                 {
@@ -329,8 +344,8 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                             break;
                         case 0x05: /* LT / LTU */
                             {
-                            c->exception = IllegalInstruction;
-                            c->keep_going = false;
+                                c->exception = IllegalInstruction;
+                                c->keep_going = false;
                             }
                             break;
                         case 0x06: /* GT(U) */
@@ -400,13 +415,16 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                                 if (is_io) {
                                     if (size == 1) {
                                         if (address == 0x00) {
-                                            printf("%c", v);
+                                            char buffer[2];
+                                            buffer[0] = v;
+                                            write(c->fd_out, buffer, 1);
                                         }
                                     } else {
                                         // TODO
+                                        c->exception = IllegalInstruction;
+                                        c->keep_going = false;
                                     }
                                 } else {
-
                                     /* TODO */
                                     c->exception = IllegalInstruction;
                                     c->keep_going = false;
@@ -519,11 +537,11 @@ static uint8_t hex_get_byte(char* line, unsigned n)
 #define INPF_BUFFER_SIZE 1024
 
 /**
- * Load a with fasm assembled file
+ * Load a with fasm assembled file.
  *
- * Return true the file was OK and was loaded.
+ * Returns true if the file was OK and was loaded correcty.
  *
- * Returns false otherwise
+ * Returns false otherwise.
  */
 static bool load_hex(char* filename, uint8_t* memory)
 {
@@ -576,27 +594,95 @@ static bool load_hex(char* filename, uint8_t* memory)
     return ok;
 }
 
+static void display_usage(void)
+{
+    printf("%s",
+           "Usage:\n"
+           "   fpemu <options>\n"
+           "     -h             This message\n"
+           "     -r <filename>  Hex file with ram image\n"
+           "     -i <filename>  Device to for serial data input\n"
+           "     -o <filename>  Device to use for serial data ouput\n"
+          );
+}
+
+
+static void parse_options(
+        int argc, char** argv,
+        char* input_file_name,
+        char* output_file_name,
+        char* memory_image_file_name
+        )
+{
+    char c;
+    output_file_name[0] = '\0';
+    input_file_name[0] = '\0';
+
+    while ((c = getopt(argc, argv, "hi:o:r:")) != EOF) {
+        switch (c) {
+        case 'h':
+            display_usage();
+            exit(EXIT_SUCCESS);
+            break;
+        case 'o':
+            strncpy(output_file_name, optarg, FPEM_MAX_FILENAME_LEN);
+            break;
+        case 'i':
+            strncpy(input_file_name, optarg, FPEM_MAX_FILENAME_LEN);
+            break;
+        case 'r':
+            strncpy(memory_image_file_name, optarg, FPEM_MAX_FILENAME_LEN);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
 int main(int argc, char** argv)
 {
     struct CPU_Context c;
     memory = (uint8_t *)malloc(MEMORY_SIZE);
+    static char input_file_name[FPEM_MAX_FILENAME_LEN + 2];
+    static char output_file_name[FPEM_MAX_FILENAME_LEN + 2];
+    static char memory_image_file_name[FPEM_MAX_FILENAME_LEN + 2];
 
     if (memory == NULL) {
         printf("Memory allocation failed\n");
     } else {
+        int fd_in;   /* input channel from terminal */
+        int fd_out;  /* ouput channel to the terminal */
+
         explicit_bzero(memory, MEMORY_SIZE);
+        parse_options(
+                argc, argv,
+                input_file_name, output_file_name,
+                memory_image_file_name
+                );
 
-        if (argc > 1) {
-            printf("%s\n", argv[1]);
-            if (load_hex(argv[1], memory)) {
-                printf("Loading completed\n");
-                cpu_reset(&c);
-                run(&c, memory);
-            } else {
-                fprintf(stderr, "could not load program\n");
-            }
-        }
+        if ((input_file_name[0] != '\0') &&
+            (output_file_name[0] != '\0') &&
+            (memory_image_file_name[0] != '\0')) {
 
+            fd_in = open(input_file_name, O_RDONLY);
+            if (fd_in >= 0) {
+                fd_out = open(output_file_name, O_WRONLY);
+                if (fd_out >= 0) {
+                    if (load_hex(memory_image_file_name, memory)) {
+                        printf("Loading completed\n");
+                        char* starting = "FPEMU V0.0001\r\n\r\n";
+                        unsigned n = strlen(starting);
+                        c.fd_in = fd_in;
+                        c.fd_out = fd_out;
+                        write(fd_out, starting, n);
+                        cpu_reset(&c);
+                        run(&c, memory);
+                    } else { fprintf(stderr, "could not load program\n"); }
+
+                } else { perror("open:"); }
+                close(fd_in);
+            } else { perror("open:"); }
+        } else { printf("Options -i, -o, -r are all needed\n"); }
         free(memory);
     }
 

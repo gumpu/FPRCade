@@ -12,6 +12,9 @@ fa : fa.c
 test :
 	make -C Test
 
+tags :
+	ctags ./fa.c
+
 clean :
 	-rm -f a.hex
 	-rm -f fa

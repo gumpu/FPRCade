@@ -31,7 +31,7 @@ syn match   smasmDecimalNumber		/\<[0-9]\+\>/
 syn keyword smasmOpcode			leave enter nop ldl ldh dup swap
 syn keyword smasmOpcode			add gt lt bif neg halt
 syn keyword smasmOpcode			eq xor or and
-syn keyword smasmOpcode			rd ird sto isto
+syn keyword smasmOpcode			rd ird sto isto drop
 
 hi def link smasmDirective	Type
 hi def link smasmLabel		Function

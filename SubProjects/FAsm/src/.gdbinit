@@ -1,10 +1,9 @@
 file ./fa
 
-break ldl_generator
-break read_number
+break dup_generator
 
-# set args test_005.asm -l test_005.list
-set args tt.sym
+set args test_005.asm -l test_005.list
+# set args tt.sym
 
 run
 

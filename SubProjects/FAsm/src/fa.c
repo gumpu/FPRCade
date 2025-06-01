@@ -1181,16 +1181,18 @@ static uint16_t neg_generator(
     return address + 2;
 }
 
-static uint16_t dup_generator(
+static uint16_t gen_stack_op_generator(
     parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
-    enum FA_ErrorReason* reason)
+    enum FA_ErrorReason* reason,
+    uint16_t opcode)
 {
     uint16_t new_address = address;
 
     if (parsed_line->number_of_words < 2) {
         snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                  "%s", "no destination");
+        *reason = eFA_Syntax_Error;
     } else {
         char destination = parsed_line->words[1][0];
 
@@ -1198,13 +1200,41 @@ static uint16_t dup_generator(
         if (bits == 0x7) {
             snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                      "%s", "illegal destination");
+            *reason = eFA_Syntax_Error;
         } else {
-            uint16_t instruction = 0xB100 | (bits << 6);
+            uint16_t instruction = opcode | (bits << 6);
             emit_code(outpf, listf, address, instruction);
             new_address += 2;
         }
     }
     return new_address;
+}
+
+static uint16_t dup_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    return gen_stack_op_generator(
+            parsed_line, outpf, listf, address, table, reason, 0xB100);
+}
+
+static uint16_t swap_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    return gen_stack_op_generator(
+            parsed_line, outpf, listf, address, table, reason, 0xB200);
+}
+
+static uint16_t drop_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    return gen_stack_op_generator(
+            parsed_line, outpf, listf, address, table, reason, 0xB000);
 }
 
 static uint16_t bif_generator(
@@ -1216,6 +1246,7 @@ static uint16_t bif_generator(
     if (parsed_line->number_of_words < 2) {
         snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                  "%s", "missing label");
+        *reason = eFA_Syntax_Error;
     } else {
         uint16_t location;
         if (find_symbol(table, parsed_line->words[1], &location)) {
@@ -1230,6 +1261,7 @@ static uint16_t bif_generator(
         } else {
             snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
                      "%s", "label not found");
+            *reason = eFA_AddressError;
         }
     }
     return new_address;
@@ -1239,6 +1271,8 @@ static instruction_generator_type instruction_generators[] = {
     {"NEG",   neg_generator,   2},
     {"ADD",   add_generator,   2},
     {"DUP",   dup_generator,   2},
+    {"SWAP",  swap_generator,  2},
+    {"DROP",  drop_generator,  2},
     {"NOP",   nop_generator,   2},
     {"HALT",  halt_generator,  2},
     {"LDL",   ldl_generator,   2},

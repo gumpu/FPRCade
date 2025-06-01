@@ -119,7 +119,7 @@ static void cpu_reset(struct CPU_Context* c)
     c->temp_stack.size    = TSTACK_SIZE;
     c->temp_stack.top     = 0U;
 
-    c->pc          = 0x0000;  /* program counter */
+    c->pc          = 0xF000;  /* program counter */
     c->instruction = 0x0000;  /* current instruction */
     c->keep_going  = true;
     c->exception   = AllIsOK;
@@ -246,6 +246,7 @@ static void run(struct CPU_Context* c, uint8_t* memory)
             case 0xB000:
                 {
                     uint16_t value;
+                    uint16_t value2;
                     struct Stack* source_stack;
                     struct Stack* destination_stack;
                     uint16_t func = (c->instruction & 0x0F00);
@@ -262,10 +263,13 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                             push(c, source_stack, value);
                             push(c, source_stack, value);
                             break;
-                        case 0x0300: /* SWAP */
+                        case 0x0200: /* SWAP */
                             value = pop(c, source_stack);
+                            value2 = pop(c, source_stack);
                             push(c, destination_stack, value);
+                            push(c, destination_stack, value2);
                             break;
+                        case 0x0300: /* MOV  TODO */
                         default:
                             c->exception = IllegalInstruction;
                             c->keep_going = false;
@@ -286,6 +290,7 @@ static void run(struct CPU_Context* c, uint8_t* memory)
             case 0xD000: /* Load: LDH */
                 {
                     struct Stack* stack;
+                    uint16_t value;
                     uint16_t stack_id = (c->instruction & 0x0C00) >> 10;
                     uint16_t high_bits_value = (c->instruction & 0x003F);
                     stack = get_stack(c, stack_id);
@@ -499,9 +504,14 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                                     c->exception = IllegalInstruction;
                                     c->keep_going = false;
                                 } else {
-                                    /* TODO */
-                                    c->exception = IllegalInstruction;
-                                    c->keep_going = false;
+                                    if (size == 1) { /* byte */
+                                        uint8_t byte = *(memory + address);
+                                        uint16_t value = (uint16_t)byte;
+                                        push(c, stack, value);
+                                    } else {
+                                        c->exception = IllegalInstruction;
+                                        c->keep_going = false;
+                                    }
                                 }
                             }
                             break;
@@ -511,6 +521,7 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                             c->keep_going = false;
                             break;
                     }
+                    (c->pc) += 2;
                     break;
                 }
             default:
@@ -569,6 +580,7 @@ static bool load_hex(char* filename, uint8_t* memory)
                     ok = false;
                     break;
                 } else {
+                    // TODO Check-sum check
                     uint8_t count = hex_get_byte(line, 1);
                     location = hex_get_byte(line, 3);
                     location = location << 8;

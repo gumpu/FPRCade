@@ -2,3 +2,6 @@
 .gdb_history
 *.list
 *.sym
+*tags
+SubProjects/Sandbox
+*.o

@@ -1,5 +1,5 @@
-; vi: ft=smasm
-;
+; vi: ft=smasm ts=2
+
 ; Stack Master 16 FORTH system
 ;
 
@@ -12,20 +12,20 @@ hello_end:
 
 ; Boot ROM
 .org $F000
-    ldl d hello
+    ldl   d hello
 loop:
-    dup d
-    rd b
-    ldl d serial_out
-    swap d
-    isto b
-    ldl d 1
+    dup   d
+    rd    b
+    ldl   d serial_out
+    swap  d
+    isto  b
+    ldl   d 1
     add
-    dup d
-    ldl d hello_end
+    dup   d
+    ldl   d hello_end
     eq
-    bif loop
-    drop d
+    bif   loop
+    drop  d
     halt
 
 ; -------------------- end of file -----------------------------------------

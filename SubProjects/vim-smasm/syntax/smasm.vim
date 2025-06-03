@@ -28,9 +28,9 @@ syn match   smasmBinaryNumber		/\<%[01]\+\>/
 syn match   smasmHexNumber		/\<$\x\+\>/
 syn match   smasmDecimalNumber		/\<[0-9]\+\>/
 
-syn keyword smasmOpcode			leave enter nop ldl ldh dup swap
+syn keyword smasmOpcode			leave enter nop ld ldl ldh dup swap
 syn keyword smasmOpcode			add gt lt bif neg halt
-syn keyword smasmOpcode			eq xor or and
+syn keyword smasmOpcode			eq xor or and drop
 syn keyword smasmOpcode			rd ird sto isto drop
 
 hi def link smasmDirective	Type

@@ -1030,6 +1030,73 @@ static uint16_t ldh_generator(
             parsed_line, outpf, listf, address, table, reason, 0xD000, 63);
 }
 
+/**
+ * LD (macro)
+ */
+
+static uint16_t ld_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    uint16_t new_address = address;
+
+    if (parsed_line->number_of_words < 2) {
+        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                 "%s", "missing destination and value");
+        *reason = eFA_Syntax_Error;
+    } else {
+        char destination = (parsed_line->words[1])[0];
+        uint16_t destination_bits = get_stack_id(destination);
+
+        if (strlen(parsed_line->words[1]) > 1) {
+            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                    "%s", "malformed or missing stack ID");
+            *reason = eFA_StackID_Error;
+        } else if (destination_bits == eSID_Unknown) {
+            snprintf(error_message,
+                    MAX_ERROR_MESSAGE_LENGTH, "%s", "unknown stack ID");
+            *reason = eFA_StackID_Error;
+        } else {
+            if (parsed_line->number_of_words < 3) {
+                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                         "%s", "missing value");
+                *reason = eFA_Syntax_Error;
+            } else {
+                bool is_negative;
+                char* number = parsed_line->words[2];
+                int64_t value;
+                if (read_number(number, &value, table, reason, &is_negative)) {
+                    assert(*reason == eFA_AllOk);
+
+                    uint16_t used_value = (uint16_t)value;
+                    uint16_t low = used_value & 0x3ff;
+                    uint16_t high = used_value >> 10;
+
+                    uint16_t instruction = 0xC000 ;
+                    instruction |= low;
+                    instruction |= (destination_bits << 10);
+                    emit_code(outpf, listf, address, instruction);
+                    new_address += 2;
+
+                    instruction = 0xD000;
+                    instruction |= high;
+                    instruction |= (destination_bits << 10);
+                    emit_code(outpf, listf, address, instruction);
+                    new_address += 2;
+                } else {
+                    /* There was some error reading the number */
+                    assert(*reason != eFA_AllOk);
+                }
+            }
+        }
+    }
+    return new_address;
+}
+
+
+/* TODO: Documentation */
+
 static uint16_t xor_generator(
     parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
@@ -1277,6 +1344,7 @@ static instruction_generator_type instruction_generators[] = {
     {"HALT",  halt_generator,  2},
     {"LDL",   ldl_generator,   2},
     {"LDH",   ldh_generator,   2},
+    {"LD",    ld_generator,    4},
     {"LT",    lt_generator,    2},
     {"GT",    gt_generator,    2},
     {"BIF",   bif_generator,   2},

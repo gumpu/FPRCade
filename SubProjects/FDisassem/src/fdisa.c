@@ -1,16 +1,12 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <getopt.h>
 #include <stdbool.h>
-
-#define FDA_MAX_CODE_LENGTH (80)
-#define FDA_MAX_FILENAME_LEN (180)
 
 void disassemble(uint16_t instruction, char* code, uint16_t address)
 {
-    char stack_letters[6] = { 'd', 'r', 'c', 't', '?', '?' };
-    char size_letters[6]  = { '?', 'b', 'w', '?', 'l', '?' };
+    static char stack_letters[6] = { 'd', 'r', 'c', 't', '?', '?' };
+    static char size_letters[6]  = { '?', 'b', 'w', '?', 'l', '?' };
 
     uint16_t group = (instruction & 0xF000);
     switch (group) {
@@ -192,46 +188,6 @@ void disassemble(uint16_t instruction, char* code, uint16_t address)
             break;
         default:
     }
-}
-
-
-static void display_usage()
-{
-}
-
-static void parse_options(
-        int argc, char** argv,
-        char* input_file_name)
-{
-    char c;
-    input_file_name[0] = '\0';
-
-    while ((c = getopt(argc, argv, "hi:o:r:")) != EOF) {
-        switch (c) {
-            case 'h':
-                display_usage();
-                exit(EXIT_SUCCESS);
-                break;
-            default:
-                break;
-
-        }
-    }
-}
-
-
-int main(int argc, char** argv)
-{
-    static char input_file_name[FDA_MAX_FILENAME_LEN + 2];
-    static char code[FDA_MAX_CODE_LENGTH];
-
-    parse_options(argc, argv, input_file_name);
-    for (uint32_t i = 0x0000; i < 0xFFFF; ++i) {
-        disassemble((uint16_t)i, code, 0x8000);
-        printf("%04x %04x %s\n", 0x8000, (uint16_t)i, code);
-    }
-
-    return EXIT_SUCCESS;
 }
 
 /* ------------------------ end of file -------------------------------*/

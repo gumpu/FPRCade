@@ -210,12 +210,12 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                         if (offset & 0x0800) {
                             /* sign extend */
                             offset = offset | 0xF000;
-                            if (offset < 0) {
-                                offset = (0 - offset);
-                                c->pc -= (uint16_t)offset;
-                            } else {
-                                c->pc += offset;
-                            }
+                        }
+                        if (offset < 0) {
+                            offset = (0 - offset);
+                            c->pc -= (uint16_t)offset;
+                        } else {
+                            c->pc += offset;
                         }
                     }
                 }

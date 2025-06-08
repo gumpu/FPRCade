@@ -8,6 +8,8 @@ void disassemble(uint16_t instruction, char* code, uint16_t address)
     static char stack_letters[6] = { 'd', 'r', 'c', 't', '?', '?' };
     static char size_letters[6]  = { '?', 'b', 'w', '?', 'l', '?' };
 
+    code[0] = '\0';
+
     uint16_t group = (instruction & 0xF000);
     switch (group) {
         case 0x4000:

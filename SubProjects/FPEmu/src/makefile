@@ -1,7 +1,12 @@
+DISA=../../FDisassem/src
+
 all : fpemu
 
-fpemu : fpemu.c
-	gcc -O0 -Werror -Wall -Wextra -g3 fpemu.c -o fpemu
+fpemu : fpemu.o $(DISA)/fdisa.o
+	gcc -O0 -g3 fpemu.o $(DISA)/fdisa.o -o fpemu
+
+fpemu.o : fpemu.c $(DISA)/fdisa.h
+	gcc -c -O0 -I$(DISA) -Werror -Wall -Wextra -g3 $< -o $@
 
 clean :
 	-rm -f fpemu

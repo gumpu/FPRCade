@@ -7,7 +7,9 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <assert.h>
+#include <ctype.h>
 
+#include "fdisa.h"
 
 #define MEMORY_SIZE 65536
 #define DSTACK_SIZE 16
@@ -606,6 +608,120 @@ static bool load_hex(char* filename, uint8_t* memory)
     return ok;
 }
 
+
+#define FPEM_WORDSIZE (60)
+#define FPEM_MAX_COMMAND_LINE_SIZE (3*FPEM_WORDSIZE)
+
+typedef struct ParameterSet {
+    unsigned number_of_words;
+    char operation[FPEM_WORDSIZE];
+    char par1[FPEM_WORDSIZE];
+    char par2[FPEM_WORDSIZE];
+} ParameterSet;
+
+static void parse_command_line(char* cl, ParameterSet* p)
+{
+    unsigned i = 0;
+    unsigned k;
+
+    p->number_of_words = 0;
+    for (k = 0; cl[i] != '\0'; ++i, ++k) {
+        p->operation[k] = cl[i];
+        if (isspace(cl[i])) { ++(p->number_of_words); break; }
+    }
+    p->operation[k] = '\0';
+    for (; isspace(cl[i]); ++i);
+    for (k = 0; cl[i] != '\0'; ++i, ++k) {
+        p->par1[k] = cl[i];
+        if (isspace(cl[i])) { ++(p->number_of_words); break; }
+    }
+    p->par1[k] = '\0';
+    for (; isspace(cl[i]); ++i);
+    for (k = 0; cl[i] != '\0'; ++i, ++k) {
+        p->par2[k] = cl[i];
+        if (isspace(cl[i])) { ++(p->number_of_words); break; }
+    }
+    p->par2[k] = '\0';
+}
+
+
+static void monitor(struct CPU_Context* context, uint8_t* memory)
+{
+    static char code[FDA_MAX_CODE_LENGTH];
+    static char commandline[FPEM_MAX_COMMAND_LINE_SIZE + 2];
+    static ParameterSet p;
+    bool do_monitor = true;
+    uint16_t address;
+    uint8_t  count;
+
+    while (do_monitor) {
+        fgets(commandline, FPEM_MAX_COMMAND_LINE_SIZE, stdin);
+        char command = commandline[0];
+        parse_command_line(commandline, &p);
+        printf("%d: %s, %s, %s\n",
+                p.number_of_words,  p.operation, p.par1, p.par2);
+        switch (command) {
+            case 'r':
+                {
+                    address = strtol(p.par1, NULL, 16);
+                    printf("run %04x\n", address);
+                    run(context, memory);
+                }
+                break;
+            case 'd':
+                {
+                    address = strtol(p.par1, NULL, 16);
+                    count = strtol(p.par2, NULL, 16);
+                    printf("disassemble %04x %04x\n", address, count);
+                    for (uint16_t i = 0; i < count; i += 2) {
+                        uint16_t instr = fetch_instruction(memory, address + i);
+                        disassemble((uint16_t)instr, code, address);
+                        printf("%04x %04x %s\n", address + i, (uint16_t)instr, code);
+                    }
+                }
+                break;
+            case 'x':
+                {
+                    address = strtol(p.par1, NULL, 16);
+                    count = strtol(p.par2, NULL, 16);
+                    printf("hexdump %04x %04x\n", address, count);
+                    for (uint16_t i = 0; i < count; ++i) {
+                        printf("%04x: ", (address +  16*i));
+                        for (uint16_t j = 0; j < 16; ++j) {
+                            printf("%02x ", *(memory + address + j + 16*i));
+                        }
+                        printf("   ");
+                        for (uint16_t j = 0; j < 16; ++j) {
+                            char c = (*(memory + address + j + 16*i));
+                            printf("%c", (isprint(c)) ? c : '.');
+                        }
+                        printf("\n");
+                    }
+                }
+                break;
+            case 'h':
+                {
+                    printf("h                   -- this message\n");
+                    printf("r [address]         -- run\n");
+                    printf("x <address> [count] -- examine memory\n");
+                    printf("d <address> [count] -- disassemble memory\n");
+                    printf("n                   -- single step\n");
+                    printf("s                   -- step into \n");
+                    printf("l <filename>        -- load hex file\n");
+                    printf("q                   -- quit\n");
+                }
+                break;
+            case 'n':
+                break;
+            case 'q':
+                do_monitor = false;
+                break;
+            default:
+                printf("%s", commandline);
+        }
+    }
+}
+
 static void display_usage(void)
 {
     printf("%s",
@@ -615,6 +731,7 @@ static void display_usage(void)
            "     -r <filename>  Hex file with ram image\n"
            "     -i <filename>  Device to for serial data input\n"
            "     -o <filename>  Device to use for serial data ouput\n"
+           "     -m             Start in the monitor\n"
           );
 }
 
@@ -623,18 +740,23 @@ static void parse_options(
         int argc, char** argv,
         char* input_file_name,
         char* output_file_name,
-        char* memory_image_file_name
+        char* memory_image_file_name,
+        bool* start_in_monitor
         )
 {
     char c;
     output_file_name[0] = '\0';
     input_file_name[0] = '\0';
+    *start_in_monitor = false;
 
-    while ((c = getopt(argc, argv, "hi:o:r:")) != EOF) {
+    while ((c = getopt(argc, argv, "hmi:o:r:")) != EOF) {
         switch (c) {
         case 'h':
             display_usage();
             exit(EXIT_SUCCESS);
+            break;
+        case 'm':
+            *start_in_monitor = true;
             break;
         case 'o':
             strncpy(output_file_name, optarg, FPEM_MAX_FILENAME_LEN);
@@ -664,12 +786,14 @@ int main(int argc, char** argv)
     } else {
         int fd_in;   /* input channel from terminal */
         int fd_out;  /* ouput channel to the terminal */
+        bool start_in_monitor;
 
         explicit_bzero(memory, MEMORY_SIZE);
         parse_options(
                 argc, argv,
                 input_file_name, output_file_name,
-                memory_image_file_name
+                memory_image_file_name,
+                &start_in_monitor
                 );
 
         if ((input_file_name[0] != '\0') &&
@@ -688,7 +812,11 @@ int main(int argc, char** argv)
                         c.fd_out = fd_out;
                         write(fd_out, starting, n);
                         cpu_reset(&c);
-                        run(&c, memory);
+                        if (start_in_monitor) {
+                            monitor(&c, memory);
+                        } else {
+                            run(&c, memory);
+                        }
                     } else { fprintf(stderr, "could not load program\n"); }
 
                 } else { perror("open:"); }

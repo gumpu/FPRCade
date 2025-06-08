@@ -10,7 +10,7 @@
 #include <stdbool.h>
 #include "fdisa.h"
 
-#define FDA_MAX_CODE_LENGTH (80)
+
 #define FDA_MAX_FILENAME_LEN (180)
 
 static void display_usage()

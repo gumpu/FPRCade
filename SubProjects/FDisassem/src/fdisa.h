@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#define FDA_MAX_CODE_LENGTH (80)
+
 extern void disassemble(
         uint16_t instruction,
         char* code,

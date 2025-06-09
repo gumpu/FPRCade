@@ -70,8 +70,7 @@ void disassemble(uint16_t instruction, char* code, uint16_t address)
                         sprintf(code, "%s %c", "drop", source_letter);
                         break;
                     case 0x0100: /* DUP */
-                        sprintf(code, "%s %c %c",
-                                "DUP", source_letter, dest_letter);
+                        sprintf(code, "%s %c", "dup", source_letter);
                         break;
                     case 0x0200: /* SWAP */
                         sprintf(code, "%s %c", "swap", source_letter);

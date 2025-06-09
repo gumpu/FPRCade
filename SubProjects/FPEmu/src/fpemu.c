@@ -675,7 +675,7 @@ static void monitor(struct CPU_Context* context, uint8_t* memory)
                     printf("disassemble %04x %04x\n", address, count);
                     for (uint16_t i = 0; i < count; i += 2) {
                         uint16_t instr = fetch_instruction(memory, address + i);
-                        disassemble((uint16_t)instr, code, address);
+                        disassemble((uint16_t)instr, code, address + i);
                         printf("%04x %04x %s\n", address + i, (uint16_t)instr, code);
                     }
                 }

@@ -63,6 +63,22 @@ all_opcodes:
     halt
     eq
     gt
-;    gtu
+    gtu
+    gteu
+    gte
+    reset
+    mul
+    mulu
+    swap d
+    swap t
+    swap c
+    swap r
+    drop d
+    drop t
+    drop c
+    drop r
+    not
+    neg
+    leave
 
 ; --------------- end of file ----------------------

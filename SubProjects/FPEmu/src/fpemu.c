@@ -351,8 +351,19 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                             break;
                         case 0x05: /* LT / LTU */
                             {
-                                c->exception = IllegalInstruction;
-                                c->keep_going = false;
+                                uint16_t r;
+                                if (is_signed) {
+                                    int16_t v1, v2;
+                                    v1 = (int16_t)pop(c, stack);
+                                    v2 = (int16_t)pop(c, stack);
+                                    r = (v2 < v1) ? 0xFFFF : 0x0000;
+                                } else {
+                                    uint16_t v1, v2;
+                                    v1 = pop(c, stack);
+                                    v2 = pop(c, stack);
+                                    r = (v2 < v1) ? 0xFFFF : 0x0000;
+                                }
+                                push(c, stack, r);
                             }
                             break;
                         case 0x06: /* GT(U) */
@@ -368,6 +379,23 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                                     v1 = pop(c, stack);
                                     v2 = pop(c, stack);
                                     r = (v2 > v1) ? 0xFFFF : 0x0000;
+                                }
+                                push(c, stack, r);
+                            }
+                            break;
+                        case 0x07: /* LTE(U) */
+                            {
+                                uint16_t r;
+                                if (is_signed) {
+                                    int16_t v1, v2;
+                                    v1 = (int16_t)pop(c, stack);
+                                    v2 = (int16_t)pop(c, stack);
+                                    r = (v2 <= v1) ? 0xFFFF : 0x0000;
+                                } else {
+                                    uint16_t v1, v2;
+                                    v1 = pop(c, stack);
+                                    v2 = pop(c, stack);
+                                    r = (v2 <= v1) ? 0xFFFF : 0x0000;
                                 }
                                 push(c, stack, r);
                             }
@@ -482,10 +510,22 @@ static void run(struct CPU_Context* c, uint8_t* memory)
 
                     switch (func) {
                         case 0x00: /* NEG */
+                            {
+                                int16_t r;
+                                int16_t v1;
+                                v1 = pop(c, stack);
+                                r = 0 - v1;
+                                push(c, stack, r);
+                            }
+                            break;
                         case 0x01: /* NOT */
-                            // TODO
-                            c->exception = IllegalInstruction;
-                            c->keep_going = false;
+                            {
+                                uint16_t r;
+                                uint16_t v1;
+                                v1 = pop(c, stack);
+                                r = ~v1;
+                                push(c, stack, r);
+                            }
                             break;
                         case 0x02: /* RD / IRD */
                             {

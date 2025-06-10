@@ -13,8 +13,8 @@ The processor is little endian.  All instructions are 16 Bit.  Bits 15 to 12
 indicate the instruction category, the remaining bits are used to encode the
 function, stack id, signed/unsigned, and/or values.
 
-The processor has four stacks. One for data, return addresses, control data, and
-temporary values.  These are indicated by the letters:  D, R, C, and T.
+The processor has four stacks. One for data, return addresses, control data,
+and temporary values.  These are indicated by the letters:  D, R, C, and T.
 The stack depths are:
 
 - Data, 8 deep
@@ -30,7 +30,7 @@ The following bit operations (unsigned): `>> << | & ^`
 
 The following bit operations (signed): `>>`
 
-The following logical operations: `< > <= >= == !=`
+The following comparison operations: `< > <= >= == !=`
 
 Stack: drop swap dup pop push
 
@@ -45,7 +45,7 @@ Values
 
 Branches: enter, leave, branch if false
 
-Control: nop halt
+Control: nop halt reset
 
 ## Opcodes
 
@@ -282,14 +282,21 @@ Bitwise and: n3 = n1 & n2
 
 `AND (n1 n2 -- n3)`
 
+Assembler:
+
+    and
+
 ### ASR - Arithmetical shift right
 
 Arithmetical shift right.
 
 `ASR (s1 u1 -- s2)`
 
+Assembler:
 
-### Branch if false - BIF
+    asr
+
+### BIF - Branch if false
 
 Encoding: `0001dddddddddddd`
 
@@ -297,42 +304,68 @@ Encoding: `0001dddddddddddd`
 
 Branch to a new address if the top value on the data stack has the value false
 (0).  The new address is computed from the current PC and the offset given in
-the instruction.
+the instruction. Where offset is in the range [-2048, 2047]
 
-    BIF offset
+Assembler:
 
-Where offset is in the range [-2048, 2047]
+    bif <label>
+    bif <address>
 
-
-### Drop value - DROP
+### DROP - Drop value
 
 `DROP (x: u1 -- x: )`
 
 Drop the top element from the given stack.
 
+Assembler:
 
-### Duplicate value - DUP
+    drop d
+    drop r
+    drop c
+    drop t
+
+
+### DUP - Duplicate value
+
+`DUP (x: u1 -- x: u1 u1 )`
 
 Duplicate the top element from the given stack.
 
+Assembler
 
-### Enter a subroutine - ENTER
+    dup d
+    dup r
+    dup c
+    dur t
 
-ENTER ( -- r: a1)
+### ENTER - Enter a subroutine
 
-    ENTER location
+`ENTER ( -- r: a1)`
 
-Location is a 14 bit value. This values is multiplied by 4 to compute the
-destination address.  The value of PC + 2 is pushed to the return stack and
-destination address is loaded into the PC.
+The location encoded in the instruction is a 14 bit value. This value is
+multiplied by 4 to compute the destination address.  The value of PC + 2 is
+pushed to the return stack and destination address is loaded into the PC.
+
+Assembler:
+
+    enter <label>
+    enter <address>
 
 ### EQ -- Are two top values equal
 
 `EQ   (u1 u2 -- t1)`
 
+Assembler:
+
+    eq
+
 ### GT - signed greater than
 
 `GT   (u1 u2 -- t1)`
+
+Assembler:
+
+    gt
 
 ### GTE - signed greater than or equal
 
@@ -351,107 +384,120 @@ destination address is loaded into the PC.
 
 ### LDH -
 
-LDH  (u2 -- u2)
+`LDH  (u1 -- u2)`
 
 ### LDL -
 
-LDL  (   -- u2)
+`LDL  (   -- u1)`
 
 ### LEAVE - Leave a subroutine
 
-LEAVE (r: a1 -- )
+`LEAVE (r: a1 -- )`
 
 Pop the top value from the return stack and loads this value into the PC.
 
 ### LSL - Logical shift left
 
-LSL (n2 u1 -- n3)
+`LSL (n2 u1 -- n3)`
 
 ### LSL - Logical shift right
 
-LSR (n2 u1 -- n3)
+`LSR (n2 u1 -- n3)`
 
 ### LT - signed less than
 
-LT  (s1 s2 -- tf)
+`LT  (s1 s2 -- tf)`
 
 ### LTE - signed less than or equal
 
-LTE   (s1 s2 -- tf)
+`LTE   (s1 s2 -- tf)`
 
 ### LTEU - unsigned less than or equal
 
-LTEU  (u1 u2 -- tf)
+`LTEU  (u1 u2 -- tf)`
 
 ### LTU - unsigned less than
 
-LTU  (u1 u2 -- tf)
+`LTU  (u1 u2 -- tf)`
 
 ### MOV - Move value from one stack to the other
 
-MOV  (x: x1 -- y: x1)
+`MOV  (x: n1  y:  --  x: y: n1)`
 
-Example
+Assembler:
 
-    MOV R D
+    mov r d
+    mov d r
+    mov t c
+    ...
 
 ### MUL - Signed multiplication
 
-MUL
+`MUL`
+
+Assembler:
+
+    mul
 
 ### MULU - Unsigned multiplication
 
-MULU
+`MULU`
+
+Assembler:
+
+    mulu
 
 ### NEG - 2 Complements
 
-NEG (n1 -- n2)
+`NEG (n1 -- n2)`
 
-### Do nothing -- NOP
+### NOP - Do nothing
 
-NOP ( -- )
+`NOP ( -- )`
 
+### NOT - Invert bits
 
-### NOT - Invert bits or truth value
-
-NOT:
-
-(n1 -- n2)
+`NOT (n1 -- n2)`
 
 ### OR - Bitwise OR
 
+`OR (n1 n2 -- n3)`
+
 Bitwise or: n3 = n1 | n2
-
-(n1 n2 -- n3)
-
 
 ### IRD - Read n bytes from an IO port
 
-IRD b  (a1 -- n1)
+`IRD b  (a1 -- n1)`
 
-IRD w  (a1 -- n1)
+`IRD w  (a1 -- n1)`
 
-IRD l  (a1 -- n1 n2)
+`IRD l  (a1 -- n1 n2)`
 
 ### RD - Read n bytes from memory
 
-RD b  (a1 -- n1)
+Read a byte
 
-RD w  (a1 -- n1)
+`RD b  (a1 -- n1)`
 
-RD l  (a1 -- n1 n2)
+Read a word
+
+`RD w  (a1 -- n1)`
+
+Read a long
+
+`RD l  (a1 -- n1 n2)`
 
 ### STO - Store n bytes in memory
 
-STO b (n1 a1 -- )
+`STO b (n1 a1 -- )`
 
 Stores the lower 8 bits of n1 at address a1.
 
-STO w (n1 a1 -- )
+`STO w (n1 a1 -- )`
 
 Stores n1 at address locations a1 and a1+1.
 
-STO l (n1 n2 a1 -- )
+`STO l (n1 n2 a1 -- )`
 
 Stores n1 and n2 at addresses a1, a1+1, a1+2, and a1+3.
 
@@ -460,15 +506,15 @@ Stores n1 and n2 at addresses a1, a1+1, a1+2, and a1+3.
 
 ### SWAP - Swap the two top stack elements of the given stack
 
-SWAP (n1 n2 -- n2 n1)
+`SWAP (n1 n2 -- n2 n1)`
 
-### RESET
+### RESET - Reset the processor state
 
 
 ### XOR - Exclusive Or
 
 Perform an exclusive or on the two top stack elements of the given stack.
 
-XOR  (n1 n2 -- n3)
+`XOR  (n1 n2 -- n3)`
 
 vi: spell spl=en

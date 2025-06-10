@@ -2,6 +2,7 @@
  * Assembler for the FPRCade processor Stackmaster-16
  *
  */
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -14,16 +15,13 @@
 #define FA_MAX_WORD_SIZE (32)
 #define FA_LINE_BUFFER_SIZE (1024)
 #define FA_MAX_SYMBOL_SIZE (32)
-// TODO Need prefix FA
-#define MAX_DIRECTIVE_NAME_LENGTH (32)
-#define MAX_INSTRUCTION_NAME_LENGTH (32)
-#define MAX_NUMBER_OF_SYMBOLS (1024)
-#define MAX_ERROR_MESSAGE_LENGTH (1024)
-
+#define FA_MAX_DIRECTIVE_NAME_LENGTH (32)
+#define FA_MAX_INSTRUCTION_NAME_LENGTH (32)
+#define FA_MAX_NUMBER_OF_SYMBOLS (1024)
+#define FA_MAX_ERROR_MESSAGE_LENGTH (1024)
 #define FA_MAX_OUTPUT_FILENAME_LENGTH (5*80)
 #define FA_MAX_LISTING_FILENAME_LENGTH (5*80)
 #define FA_MAX_SYMBOL_FILENAME_LENGTH (5*80)
-
 #define FA_MAX_NUMBER_OF_PARSED_WORDS (6)
 
 #define HEX_MAX_BUFFER_SIZE (16)
@@ -82,7 +80,7 @@ typedef struct symbol_value_pair {
  */
 typedef struct symbol_table {
     uint16_t number;
-    symbol_value_pair_type symbols[MAX_NUMBER_OF_SYMBOLS];
+    symbol_value_pair_type symbols[FA_MAX_NUMBER_OF_SYMBOLS];
 } symbol_table_type;
 
 /**
@@ -219,7 +217,27 @@ static uint16_t gt_generator(
     parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
+static uint16_t gte_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason);
+static uint16_t gteu_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason);
+static uint16_t gtu_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason);
 static uint16_t add_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason);
+static uint16_t mulu_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason);
+static uint16_t mul_generator(
     parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
@@ -310,7 +328,7 @@ static void parse_options(
 static char line_buffer[FA_LINE_BUFFER_SIZE];
 static char remark_less_line_buffer[FA_LINE_BUFFER_SIZE];
 static char stripped_line_buffer[FA_LINE_BUFFER_SIZE];
-static char error_message[MAX_ERROR_MESSAGE_LENGTH];
+static char error_message[FA_MAX_ERROR_MESSAGE_LENGTH];
 
 /* For hex file format */
 static uint8_t  hex_byte_buffer[HEX_MAX_BUFFER_SIZE];
@@ -437,7 +455,7 @@ static char* error_reason_text [] = {
 static void report_error(enum FA_ErrorReason reason, char* line, int line_no)
 {
     snprintf(error_message,
-            MAX_ERROR_MESSAGE_LENGTH, "%s", error_reason_text[reason]);
+            FA_MAX_ERROR_MESSAGE_LENGTH, "%s", error_reason_text[reason]);
 }
 
 /**
@@ -600,7 +618,7 @@ static bool read_number(
             if (find_symbol(table, word, &location)) {
                 result = location;
             } else {
-                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                         "%s", "label not found");
                 is_wrong = true;
                 *reason = eFA_AddressError;
@@ -628,7 +646,7 @@ static bool read_number(
 
     if (is_wrong) {
         if (*reason != eFA_AddressError) {
-            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+            snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                     "%s (%s)", "malformed number", word);
             *reason = eFA_Syntax_Error;
             /* Make sure the function returns non-random values */
@@ -774,8 +792,8 @@ static bool add_symbol(symbol_table_type* lt, char* symbol, uint16_t value)
 {
     bool is_ok = true;
     int n = lt->number;
-    if (n == MAX_NUMBER_OF_SYMBOLS) {
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+    if (n == FA_MAX_NUMBER_OF_SYMBOLS) {
+        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                         "%s", "label table is full");
         is_ok = false;
     } else {
@@ -812,7 +830,7 @@ static bool add_label(
         is_ok = add_symbol(lt, label, address);
     } else {
         is_ok = false;
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                 "%s", "symbol name is to long");
     }
 
@@ -832,7 +850,7 @@ static bool check_label(
     i = get_word(label, line, ':', FA_MAX_SYMBOL_SIZE);
 
     if (i >= FA_MAX_SYMBOL_SIZE) {
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                 "%s", "Internal error");
         is_ok = false;
     } else {
@@ -841,13 +859,13 @@ static bool check_label(
             if (ist_address == address) {
                 /* OK */
             } else {
-                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                         "%s", "Label address mismatch");
                 is_ok = false;
             }
         } else {
             /* Label can't be found, but it should be there */
-            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+            snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                     "%s", "Can't find label location");
             is_ok = false;
         }
@@ -889,14 +907,14 @@ static uint16_t enter_generator(
     uint16_t new_address = address;
 
     if (parsed_line->number_of_words < 2) {
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                 "%s", "missing label");
         *reason = eFA_Syntax_Error;
     } else {
         uint16_t location;
         if (find_symbol(table, parsed_line->words[1], &location)) {
             if (location & 0x03) {
-                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                         "destination address, %s (%04x), is not aligned",
                         parsed_line->words[1], location);
                 *reason = eFA_AddressError;
@@ -909,7 +927,7 @@ static uint16_t enter_generator(
                 new_address += 2;
             }
         } else {
-            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+            snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                      "%s", "label not found");
             *reason = eFA_Syntax_Error;
         }
@@ -936,6 +954,17 @@ static uint16_t halt_generator(
     return address + 2;
 }
 
+static uint16_t reset_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0x8300);
+    return address + 2;
+}
+
+
+
 /**
  * Handles:
  *
@@ -956,7 +985,7 @@ static uint16_t ldx_generator(
 {
     uint16_t new_address = address;
     if (parsed_line->number_of_words < 2) {
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                  "%s", "missing destination and value");
         *reason = eFA_Syntax_Error;
     } else {
@@ -964,16 +993,16 @@ static uint16_t ldx_generator(
         uint16_t destination_bits = get_stack_id(destination);
 
         if (strlen(parsed_line->words[1]) > 1) {
-            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+            snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                     "%s", "malformed or missing stack ID");
             *reason = eFA_StackID_Error;
         } else if (destination_bits == eSID_Unknown) {
             snprintf(error_message,
-                    MAX_ERROR_MESSAGE_LENGTH, "%s", "unknown stack ID");
+                    FA_MAX_ERROR_MESSAGE_LENGTH, "%s", "unknown stack ID");
             *reason = eFA_StackID_Error;
         } else {
             if (parsed_line->number_of_words < 3) {
-                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                          "%s", "missing value");
                 *reason = eFA_Syntax_Error;
             } else {
@@ -985,7 +1014,7 @@ static uint16_t ldx_generator(
                     assert(*reason == eFA_AllOk);
 
                     if ((value < 0) || (value > limit) || is_negative) {
-                        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                                 "%s", "value does not fit");
                         *reason = eFA_Syntax_Error;
                     } else {
@@ -1042,7 +1071,7 @@ static uint16_t ld_generator(
     uint16_t new_address = address;
 
     if (parsed_line->number_of_words < 2) {
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                  "%s", "missing destination and value");
         *reason = eFA_Syntax_Error;
     } else {
@@ -1050,16 +1079,16 @@ static uint16_t ld_generator(
         uint16_t destination_bits = get_stack_id(destination);
 
         if (strlen(parsed_line->words[1]) > 1) {
-            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+            snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                     "%s", "malformed or missing stack ID");
             *reason = eFA_StackID_Error;
         } else if (destination_bits == eSID_Unknown) {
             snprintf(error_message,
-                    MAX_ERROR_MESSAGE_LENGTH, "%s", "unknown stack ID");
+                    FA_MAX_ERROR_MESSAGE_LENGTH, "%s", "unknown stack ID");
             *reason = eFA_StackID_Error;
         } else {
             if (parsed_line->number_of_words < 3) {
-                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                          "%s", "missing value");
                 *reason = eFA_Syntax_Error;
             } else {
@@ -1193,7 +1222,7 @@ static uint16_t rd_sto_generator(
     uint16_t opcode)
 {
     if (parsed_line->number_of_words < 2) {
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                  "%s", "missing size indicator");
         *reason = eFA_Syntax_Error;
     } else {
@@ -1201,7 +1230,7 @@ static uint16_t rd_sto_generator(
         enum FA_SizeID size = get_size_id(size_char);
 
         if (size == eSZ_Unknown) {
-            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+            snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                     "%s", "unknown size indicator");
             *reason = eFA_Syntax_Error;
         } else {
@@ -1218,6 +1247,62 @@ static uint16_t lt_generator(
     enum FA_ErrorReason* reason)
 {
     emit_code(outpf, listf, address, 0xe290);
+    return address + 2;
+}
+
+static uint16_t lte_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xe390);
+    return address + 2;
+}
+
+static uint16_t ltu_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xe280);
+    return address + 2;
+}
+
+
+
+static uint16_t lteu_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xe380);
+    return address + 2;
+}
+
+static uint16_t gteu_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xe400);
+    return address + 2;
+}
+
+static uint16_t gte_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xe410);
+    return address + 2;
+}
+
+static uint16_t gtu_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xe300);
     return address + 2;
 }
 
@@ -1239,12 +1324,39 @@ static uint16_t add_generator(
     return address + 2;
 }
 
-static uint16_t neg_generator(
+static uint16_t mul_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xe080);
+    return address + 2;
+}
+
+static uint16_t mulu_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xe090);
+    return address + 2;
+}
+
+static uint16_t not_generator(
     parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason)
 {
     emit_code(outpf, listf, address, 0xf000);
+    return address + 2;
+}
+
+static uint16_t neg_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xf100);
     return address + 2;
 }
 
@@ -1257,7 +1369,7 @@ static uint16_t gen_stack_op_generator(
     uint16_t new_address = address;
 
     if (parsed_line->number_of_words < 2) {
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                  "%s", "no destination");
         *reason = eFA_Syntax_Error;
     } else {
@@ -1265,7 +1377,7 @@ static uint16_t gen_stack_op_generator(
 
         uint16_t bits = get_stack_id(destination);
         if (bits == 0x7) {
-            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+            snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                      "%s", "illegal destination");
             *reason = eFA_Syntax_Error;
         } else {
@@ -1311,7 +1423,7 @@ static uint16_t bif_generator(
 {
     uint16_t new_address = address;
     if (parsed_line->number_of_words < 2) {
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                  "%s", "missing label");
         *reason = eFA_Syntax_Error;
     } else {
@@ -1326,7 +1438,7 @@ static uint16_t bif_generator(
             emit_code(outpf, listf, address, instruction);
             new_address += 2;
         } else {
-            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+            snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                      "%s", "label not found");
             *reason = eFA_AddressError;
         }
@@ -1335,29 +1447,39 @@ static uint16_t bif_generator(
 }
 
 static instruction_generator_type instruction_generators[] = {
-    {"NEG",   neg_generator,   2},
     {"ADD",   add_generator,   2},
-    {"DUP",   dup_generator,   2},
-    {"SWAP",  swap_generator,  2},
-    {"DROP",  drop_generator,  2},
-    {"NOP",   nop_generator,   2},
-    {"HALT",  halt_generator,  2},
-    {"LDL",   ldl_generator,   2},
-    {"LDH",   ldh_generator,   2},
-    {"LD",    ld_generator,    4},
-    {"LT",    lt_generator,    2},
-    {"GT",    gt_generator,    2},
-    {"BIF",   bif_generator,   2},
-    {"LEAVE", leave_generator, 2},
-    {"ENTER", enter_generator, 2},
-    {"OR",    or_generator,    2},
+    {"MUL",   mul_generator,   2},
+    {"MULU",  mulu_generator,  2},
     {"AND",   and_generator,   2},
-    {"XOR",   xor_generator,   2},
+    {"BIF",   bif_generator,   2},
+    {"DROP",  drop_generator,  2},
+    {"DUP",   dup_generator,   2},
+    {"ENTER", enter_generator, 2},
     {"EQ",    eq_generator,    2},
-    {"RD",    rd_generator,    2},
-    {"STO",   sto_generator,   2},
+    {"GTE",   gte_generator,   2},
+    {"GTEU",  gteu_generator,  2},
+    {"GT",    gt_generator,    2},
+    {"GTU",   gtu_generator,   2},
+    {"HALT",  halt_generator,  2},
+    {"RESET", reset_generator, 2},
     {"IRD",   ird_generator,   2},
     {"ISTO",  isto_generator,  2},
+    {"LDH",   ldh_generator,   2},
+    {"LD",    ld_generator,    4},
+    {"LDL",   ldl_generator,   2},
+    {"LEAVE", leave_generator, 2},
+    {"LTE",   lte_generator,   2},
+    {"LTEU",  lteu_generator,  2},
+    {"LT",    lt_generator,    2},
+    {"LTU",   ltu_generator,   2},
+    {"NEG",   neg_generator,   2},
+    {"NOP",   nop_generator,   2},
+    {"NOT",   not_generator,   2},
+    {"OR",    or_generator,    2},
+    {"RD",    rd_generator,    2},
+    {"STO",   sto_generator,   2},
+    {"SWAP",  swap_generator,  2},
+    {"XOR",   xor_generator,   2},
 
     /* Should always be the last one */
     {NULL, NULL}
@@ -1439,7 +1561,7 @@ static uint16_t dot_b_generator(
     n = get_word(numberstring, &(line[i]), ' ', FA_MAX_WORD_SIZE);
     if (n == 0) {
         /* .b  but no values */
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH, "%s",
                 ".b needs at least one value");
         *error_reason = eFA_Syntax_Error;
     } else {
@@ -1456,7 +1578,7 @@ static uint16_t dot_b_generator(
                         uint8_t byte_value = (value & 0xFF);
                         hex_push_byte(outpf, byte_value);
                     } else {
-                        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                                 "%s", "value does not fit in a byte");
                         *error_reason = eFA_Syntax_Error;
                         break;
@@ -1464,7 +1586,7 @@ static uint16_t dot_b_generator(
                 }
             }
             i = skip_spaces(line, n + i);
-            n = get_word(numberstring, &(line[i]), ' ', MAX_INSTRUCTION_NAME_LENGTH);
+            n = get_word(numberstring, &(line[i]), ' ', FA_MAX_INSTRUCTION_NAME_LENGTH);
         }
     }
     return address + bytes_needed;
@@ -1523,11 +1645,11 @@ static uint16_t dot_def_generator(
 
         if (n == 0) {
             /* .def  but no symbol */
-            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+            snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH, "%s",
                     ".def needs a symbol name");
             *error_reason = eFA_Syntax_Error;
         } else if (n >= FA_MAX_SYMBOL_SIZE) {
-            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+            snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH, "%s",
                     ".def symbol name is too long");
             *error_reason = eFA_Syntax_Error;
         } else {
@@ -1541,11 +1663,11 @@ static uint16_t dot_def_generator(
                 n = 0;
             }
             if (n == 0) {
-                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+                snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH, "%s",
                         ".def needs a value");
                 *error_reason = eFA_Syntax_Error;
             } else if (n == FA_MAX_WORD_SIZE) {
-                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+                snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH, "%s",
                         "number is too long");
                 *error_reason = eFA_Syntax_Error;
             } else {
@@ -1555,12 +1677,12 @@ static uint16_t dot_def_generator(
                             numberstring, &value, table,
                             error_reason, &is_negative)) {
                     if (value > 65535) {
-                        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+                        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH, "%s",
                                 "value is too big");
                         *error_reason = eFA_Syntax_Error;
                     } else {
                         if (value < -32768) {
-                            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+                            snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH, "%s",
                                     "value is too small");
                             *error_reason = eFA_Syntax_Error;
                         } else {
@@ -1572,7 +1694,7 @@ static uint16_t dot_def_generator(
                         }
                     }
                 } else {
-                    snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+                    snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH, "%s",
                             "Malformed number");
                     *error_reason = eFA_Syntax_Error;
                 }
@@ -1597,10 +1719,10 @@ static uint16_t dot_org_generator(
 
     i = skip_word(line, 0);
     i = skip_spaces(line, i);
-    n = get_word(numberstring, &(line[i]), ' ', MAX_INSTRUCTION_NAME_LENGTH);
+    n = get_word(numberstring, &(line[i]), ' ', FA_MAX_INSTRUCTION_NAME_LENGTH);
     if (n == 0) {
         /* .b  but no values */
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH, "%s",
                 ".org needs value");
         *error_reason = eFA_Syntax_Error;
     } else {
@@ -1608,12 +1730,12 @@ static uint16_t dot_org_generator(
         int64_t value;
         if (read_number(numberstring, &value, table, error_reason, &is_negative)) {
             if (is_negative) {
-                snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+                snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH, "%s",
                         ".org value can not be negative");
                 *error_reason = eFA_Syntax_Error;
             } else {
                 if (value > 0xFFFF) {
-                    snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH, "%s",
+                    snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH, "%s",
                             ".org value can not be larger than 65535");
                     *error_reason = eFA_AddressError;
                 } else {
@@ -1652,7 +1774,7 @@ static uint16_t dot_align_generator(
         default:
             delta = 0;
             snprintf(error_message,
-                    MAX_ERROR_MESSAGE_LENGTH, "%s", "Align needs a W or L");
+                    FA_MAX_ERROR_MESSAGE_LENGTH, "%s", "Align needs a W or L");
             *error_reason = eFA_Syntax_Error;
     }
 
@@ -1802,11 +1924,11 @@ static bool strip_line(
     }
 
     if (in_char_constant) {
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                 "%s", "unterminated character constant");
     }
     if (in_string) {
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                 "%s", "unterminated string");
     }
     return !in_string && !in_char_constant;
@@ -1823,11 +1945,11 @@ static bool parse_directive(
 {
     bool all_ok = true;
     unsigned n;
-    char name[MAX_DIRECTIVE_NAME_LENGTH];
+    char name[FA_MAX_DIRECTIVE_NAME_LENGTH];
 
-    n = get_word(name, line, ' ', MAX_DIRECTIVE_NAME_LENGTH);
+    n = get_word(name, line, ' ', FA_MAX_DIRECTIVE_NAME_LENGTH);
 
-    if (n == MAX_DIRECTIVE_NAME_LENGTH) {
+    if (n == FA_MAX_DIRECTIVE_NAME_LENGTH) {
         report_error(eFA_DirectiveTooLong, line, line_no);
         all_ok = false;
     } else {
@@ -1901,7 +2023,7 @@ static bool parse_instruction(
 
                     delta = new_address - (*address);
                     if (delta != instruction_generators[i].byte_count) {
-                        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+                        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                                 "%s", "internal error");
                         all_ok = false;
                     }
@@ -1912,7 +2034,7 @@ static bool parse_instruction(
         }
     }
     if (instruction_generators[i].generator == NULL) {
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                 "%s: %s", "unknown instruction", name);
         all_ok = false;
     }
@@ -2026,7 +2148,7 @@ static bool parse_line_into_words(parsed_line_type* parsed_line, char* line)
         assert(line[i] != ' ');
         n = get_word(parsed_line->words[k], &(line[i]), ' ', FA_MAX_WORD_SIZE);
         if (n == FA_MAX_WORD_SIZE) {
-            snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+            snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                  "%s", "Word is too long");
             is_ok = false;
             break;
@@ -2038,7 +2160,7 @@ static bool parse_line_into_words(parsed_line_type* parsed_line, char* line)
     } while ((k < FA_MAX_NUMBER_OF_PARSED_WORDS) && (line[i] != '\0'));
 
     if ((k == FA_MAX_NUMBER_OF_PARSED_WORDS) && (line[i] != '\0')) {
-        snprintf(error_message, MAX_ERROR_MESSAGE_LENGTH,
+        snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
                  "%s", "Too many words on an instruction line");
 
         is_ok = false;

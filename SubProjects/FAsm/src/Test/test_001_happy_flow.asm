@@ -80,5 +80,10 @@ all_opcodes:
     not
     neg
     leave
+    lsl
+    lsr
+    asr
+    mov d t
+    mov t r
 
 ; --------------- end of file ----------------------

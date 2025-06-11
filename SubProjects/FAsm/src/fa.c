@@ -233,6 +233,18 @@ static uint16_t add_generator(
     parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
     enum FA_ErrorReason* reason);
+static uint16_t asr_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason);
+static uint16_t lsl_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason);
+static uint16_t lsr_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason);
 static uint16_t mulu_generator(
     parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
@@ -1315,6 +1327,33 @@ static uint16_t gt_generator(
     return address + 2;
 }
 
+static uint16_t lsl_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xe480);
+    return address + 2;
+}
+
+static uint16_t lsr_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xe500);
+    return address + 2;
+}
+
+static uint16_t asr_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    emit_code(outpf, listf, address, 0xe210);
+    return address + 2;
+}
+
 static uint16_t add_generator(
     parsed_line_type* parsed_line,
     FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
@@ -1370,23 +1409,44 @@ static uint16_t gen_stack_op_generator(
 
     if (parsed_line->number_of_words < 2) {
         snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
-                 "%s", "no destination");
+                 "%s", "no source");
         *reason = eFA_Syntax_Error;
     } else {
-        char destination = parsed_line->words[1][0];
-
-        uint16_t bits = get_stack_id(destination);
-        if (bits == 0x7) {
+        char source = parsed_line->words[1][0];
+        uint16_t sbits = get_stack_id(source);
+        if (sbits == 0x7) {
             snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
-                     "%s", "illegal destination");
+                    "%s", "illegal source");
             *reason = eFA_Syntax_Error;
+        }
+
+        if (parsed_line->number_of_words == 3) {
+            char target = parsed_line->words[2][0];
+            uint16_t tbits = get_stack_id(target);
+            if (tbits == 0x7) {
+                snprintf(error_message, FA_MAX_ERROR_MESSAGE_LENGTH,
+                        "%s", "illegal target");
+                *reason = eFA_Syntax_Error;
+            }
+            uint16_t instruction = opcode | (sbits << 6) | (tbits << 4);
+            emit_code(outpf, listf, address, instruction);
+            new_address += 2;
         } else {
-            uint16_t instruction = opcode | (bits << 6);
+            uint16_t instruction = opcode | (sbits << 6);
             emit_code(outpf, listf, address, instruction);
             new_address += 2;
         }
     }
     return new_address;
+}
+
+static uint16_t mov_generator(
+    parsed_line_type* parsed_line,
+    FILE* outpf, FILE* listf, uint16_t address, symbol_table_type* table,
+    enum FA_ErrorReason* reason)
+{
+    return gen_stack_op_generator(
+            parsed_line, outpf, listf, address, table, reason, 0xB300);
 }
 
 static uint16_t dup_generator(
@@ -1448,11 +1508,13 @@ static uint16_t bif_generator(
 
 static instruction_generator_type instruction_generators[] = {
     {"ADD",   add_generator,   2},
+    {"ASR",   asr_generator,   2},
     {"MUL",   mul_generator,   2},
     {"MULU",  mulu_generator,  2},
     {"AND",   and_generator,   2},
     {"BIF",   bif_generator,   2},
     {"DROP",  drop_generator,  2},
+    {"MOV",   mov_generator,   2},
     {"DUP",   dup_generator,   2},
     {"ENTER", enter_generator, 2},
     {"EQ",    eq_generator,    2},
@@ -1471,6 +1533,8 @@ static instruction_generator_type instruction_generators[] = {
     {"LTE",   lte_generator,   2},
     {"LTEU",  lteu_generator,  2},
     {"LT",    lt_generator,    2},
+    {"LSL",   lsl_generator,   2},
+    {"LSR",   lsr_generator,   2},
     {"LTU",   ltu_generator,   2},
     {"NEG",   neg_generator,   2},
     {"NOP",   nop_generator,   2},

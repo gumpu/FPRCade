@@ -49,6 +49,7 @@ struct Stack {
 
 struct CPU_Context {
     bool keep_going;
+    bool single_step;
     uint16_t exception;
     struct Stack data_stack;
     struct Stack return_stack;
@@ -124,6 +125,7 @@ static void cpu_reset(struct CPU_Context* c)
     c->pc          = 0xF000;  /* program counter */
     c->instruction = 0x0000;  /* current instruction */
     c->keep_going  = true;
+    c->single_step = false;   /* Run on instruction then stop */
     c->exception   = AllIsOK;
 }
 
@@ -250,12 +252,12 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                     uint16_t value;
                     uint16_t value2;
                     struct Stack* source_stack;
-                    struct Stack* destination_stack;
+                    struct Stack* target_stack;
                     uint16_t func = (c->instruction & 0x0F00);
                     uint16_t source_stack_id = (c->instruction & 0x00C0) >> 6;
-                    uint16_t dest_stack_id   = (c->instruction & 0x0030) >> 4;
+                    uint16_t target_stack_id   = (c->instruction & 0x0030) >> 4;
                     source_stack = get_stack(c, source_stack_id);
-                    destination_stack = get_stack(c, dest_stack_id);
+                    target_stack = get_stack(c, target_stack_id);
                     switch (func) {
                         case 0x0000: /* DROP */
                             (void)pop(c, source_stack);
@@ -268,10 +270,13 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                         case 0x0200: /* SWAP */
                             value = pop(c, source_stack);
                             value2 = pop(c, source_stack);
-                            push(c, destination_stack, value);
-                            push(c, destination_stack, value2);
+                            push(c, source_stack, value);
+                            push(c, source_stack, value2);
                             break;
-                        case 0x0300: /* MOV  TODO */
+                        case 0x0300: /* MOV */
+                            value = pop(c, source_stack);
+                            push(c, target_stack, value);
+                            break;
                         default:
                             c->exception = IllegalInstruction;
                             c->keep_going = false;
@@ -310,38 +315,55 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                         case 0x00: /* ADD(U) */
                             {
                                 if (is_signed) {
-                                    int16_t v1, v2;
-                                    v1 = pop(c, stack);
-                                    v2 = pop(c, stack);
-                                    v1 = v1 + v2;
-                                    push(c, stack, (uint16_t)v1);
+                                    int16_t s1, s2;
+                                    s1 = pop(c, stack);
+                                    s2 = pop(c, stack);
+                                    s1 = s1 + s2;
+                                    push(c, stack, (uint16_t)s1);
                                 } else {
-                                    uint16_t v1, v2;
-                                    v1 = pop(c, stack);
-                                    v2 = pop(c, stack);
-                                    v1 = v1 + v2;
-                                    push(c, stack, v1);
+                                    uint16_t u1, u2;
+                                    u1 = pop(c, stack);
+                                    u2 = pop(c, stack);
+                                    u1 = u1 + u2;
+                                    push(c, stack, u1);
+                                }
+                            }
+                            break;
+                        case 0x01: /* MUL(U) */
+                            {
+                                if (is_signed) {
+                                    int16_t s1, s2;
+                                    s1 = pop(c, stack);
+                                    s2 = pop(c, stack);
+                                    s1 = s1 * s2;
+                                    push(c, stack, (uint16_t)s1);
+                                } else {
+                                    uint16_t u1, u2;
+                                    u1 = pop(c, stack);
+                                    u2 = pop(c, stack);
+                                    u1 = u1 * u2;
+                                    push(c, stack, u1);
                                 }
                             }
                             break;
                         case 0x03: /* EQ */
                             {
-                                uint16_t r;
-                                uint16_t v1, v2;
-                                v1 = pop(c, stack);
-                                v2 = pop(c, stack);
-                                r = (v2 == v1) ? 0xFFFF : 0x0000;
-                                push(c, stack, r);
+                                uint16_t t;
+                                uint16_t n1, n2;
+                                n1 = pop(c, stack);
+                                n2 = pop(c, stack);
+                                t = (n2 == n1) ? 0xFFFF : 0x0000;
+                                push(c, stack, t);
                             }
                             break;
                         case 0x04: /* ASR */
                             {
                                 int16_t r;
                                 if (is_signed) {
-                                    int16_t v1, v2;
-                                    v1 = (int16_t)pop(c, stack);
-                                    v2 = (int16_t)pop(c, stack);
-                                    r = (v2 >> v1);
+                                    int16_t s1, s2;
+                                    s1 = (int16_t)pop(c, stack);
+                                    s2 = (int16_t)pop(c, stack);
+                                    r = (s2 >> s1);
                                     push(c, stack, r);
                                 } else {
                                     c->exception = IllegalInstruction;
@@ -351,99 +373,99 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                             break;
                         case 0x05: /* LT / LTU */
                             {
-                                uint16_t r;
+                                uint16_t t;
                                 if (is_signed) {
-                                    int16_t v1, v2;
-                                    v1 = (int16_t)pop(c, stack);
-                                    v2 = (int16_t)pop(c, stack);
-                                    r = (v2 < v1) ? 0xFFFF : 0x0000;
+                                    int16_t s1, s2;
+                                    s1 = (int16_t)pop(c, stack);
+                                    s2 = (int16_t)pop(c, stack);
+                                    t = (s2 < s1) ? 0xFFFF : 0x0000;
                                 } else {
-                                    uint16_t v1, v2;
-                                    v1 = pop(c, stack);
-                                    v2 = pop(c, stack);
-                                    r = (v2 < v1) ? 0xFFFF : 0x0000;
+                                    uint16_t u1, u2;
+                                    u1 = pop(c, stack);
+                                    u2 = pop(c, stack);
+                                    t = (u2 < u1) ? 0xFFFF : 0x0000;
                                 }
-                                push(c, stack, r);
+                                push(c, stack, t);
                             }
                             break;
                         case 0x06: /* GT(U) */
                             {
-                                uint16_t r;
+                                uint16_t t;
                                 if (is_signed) {
-                                    int16_t v1, v2;
-                                    v1 = (int16_t)pop(c, stack);
-                                    v2 = (int16_t)pop(c, stack);
-                                    r = (v2 > v1) ? 0xFFFF : 0x0000;
+                                    int16_t s1, s2;
+                                    s1 = (int16_t)pop(c, stack);
+                                    s2 = (int16_t)pop(c, stack);
+                                    t = (s2 > s1) ? 0xFFFF : 0x0000;
                                 } else {
-                                    uint16_t v1, v2;
-                                    v1 = pop(c, stack);
-                                    v2 = pop(c, stack);
-                                    r = (v2 > v1) ? 0xFFFF : 0x0000;
+                                    uint16_t u1, u2;
+                                    u1 = pop(c, stack);
+                                    u2 = pop(c, stack);
+                                    t = (u2 > u1) ? 0xFFFF : 0x0000;
                                 }
-                                push(c, stack, r);
+                                push(c, stack, t);
                             }
                             break;
                         case 0x07: /* LTE(U) */
                             {
-                                uint16_t r;
+                                uint16_t t;
                                 if (is_signed) {
-                                    int16_t v1, v2;
-                                    v1 = (int16_t)pop(c, stack);
-                                    v2 = (int16_t)pop(c, stack);
-                                    r = (v2 <= v1) ? 0xFFFF : 0x0000;
+                                    int16_t s1, s2;
+                                    s1 = (int16_t)pop(c, stack);
+                                    s2 = (int16_t)pop(c, stack);
+                                    t = (s2 <= s1) ? 0xFFFF : 0x0000;
                                 } else {
-                                    uint16_t v1, v2;
-                                    v1 = pop(c, stack);
-                                    v2 = pop(c, stack);
-                                    r = (v2 <= v1) ? 0xFFFF : 0x0000;
+                                    uint16_t u1, u2;
+                                    u1 = pop(c, stack);
+                                    u2 = pop(c, stack);
+                                    t = (u2 <= u1) ? 0xFFFF : 0x0000;
                                 }
-                                push(c, stack, r);
+                                push(c, stack, t);
                             }
                             break;
                         case 0x08: /* GTE(U) */
                             {
-                                uint16_t r;
+                                uint16_t t;
                                 if (is_signed) {
-                                    int16_t v1, v2;
-                                    v1 = (int16_t)pop(c, stack);
-                                    v2 = (int16_t)pop(c, stack);
-                                    r = (v2 >= v1) ? 0xFFFF : 0x0000;
+                                    int16_t s1, s2;
+                                    s1 = (int16_t)pop(c, stack);
+                                    s2 = (int16_t)pop(c, stack);
+                                    t = (s2 >= s1) ? 0xFFFF : 0x0000;
                                 } else {
-                                    uint16_t v1, v2;
-                                    v1 = pop(c, stack);
-                                    v2 = pop(c, stack);
-                                    r = (v2 >= v1) ? 0xFFFF : 0x0000;
+                                    uint16_t u1, u2;
+                                    u1 = pop(c, stack);
+                                    u2 = pop(c, stack);
+                                    t = (u2 >= u1) ? 0xFFFF : 0x0000;
                                 }
-                                push(c, stack, r);
+                                push(c, stack, t);
                             }
                             break;
                         case 0x09: /* LSR */
                             {
                                 uint16_t r;
-                                uint16_t v1, v2;
-                                v1 = pop(c, stack);
-                                v2 = pop(c, stack);
-                                r = (v2 << v1);
+                                uint16_t n1, n2;
+                                n1 = pop(c, stack);
+                                n2 = pop(c, stack);
+                                r = (n2 << n1);
                                 push(c, stack, r);
                             }
                             break;
                         case 0x0A: /* LSL */
                             {
                                 uint16_t r;
-                                uint16_t v1, v2;
-                                v1 = pop(c, stack);
-                                v2 = pop(c, stack);
-                                r = (v2 >> v1);
+                                uint16_t n1, n2;
+                                n1 = pop(c, stack);
+                                n2 = pop(c, stack);
+                                r = (n2 >> n1);
                                 push(c, stack, r);
                             }
                             break;
                         case 0x0B: /* STO / ISTO */
                             {
                                 uint16_t address;
-                                uint16_t v;
+                                uint16_t n;
                                 uint8_t size;
                                 uint16_t is_io;
-                                v = pop(c, stack);
+                                n = pop(c, stack);
                                 address = pop(c, stack);
                                 size = (c->instruction) & 0x03;
                                 is_io = (c->instruction) & 0x40;
@@ -451,7 +473,7 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                                     if (size == 1) {
                                         if (address == 0x00) {
                                             char buffer[2];
-                                            buffer[0] = v;
+                                            buffer[0] = n;
                                             write(c->fd_out, buffer, 1);
                                         }
                                     } else {
@@ -469,30 +491,30 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                         case 0x0D: /* AND */
                             {
                                 uint16_t r;
-                                uint16_t v1, v2;
-                                v1 = pop(c, stack);
-                                v2 = pop(c, stack);
-                                r = (v2 & v1);
+                                uint16_t n1, n2;
+                                n1 = pop(c, stack);
+                                n2 = pop(c, stack);
+                                r = (n2 & n1);
                                 push(c, stack, r);
                             }
                             break;
                         case 0x0E: /* OR */
                             {
                                 uint16_t r;
-                                uint16_t v1, v2;
-                                v1 = pop(c, stack);
-                                v2 = pop(c, stack);
-                                r = (v2 | v1);
+                                uint16_t n1, n2;
+                                n1 = pop(c, stack);
+                                n2 = pop(c, stack);
+                                r = (n2 | n1);
                                 push(c, stack, r);
                             }
                             break;
                         case 0x0F: /* XOR */
                             {
                                 uint16_t r;
-                                uint16_t v1, v2;
-                                v1 = pop(c, stack);
-                                v2 = pop(c, stack);
-                                r = (v2 ^ v1);
+                                uint16_t n1, n2;
+                                n1 = pop(c, stack);
+                                n2 = pop(c, stack);
+                                r = (n2 ^ n1);
                                 push(c, stack, r);
                             }
                             break;
@@ -512,18 +534,18 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                         case 0x00: /* NEG */
                             {
                                 int16_t r;
-                                int16_t v1;
-                                v1 = pop(c, stack);
-                                r = 0 - v1;
+                                int16_t s1;
+                                s1 = pop(c, stack);
+                                r = 0 - s1;
                                 push(c, stack, r);
                             }
                             break;
                         case 0x01: /* NOT */
                             {
                                 uint16_t r;
-                                uint16_t v1;
-                                v1 = pop(c, stack);
-                                r = ~v1;
+                                uint16_t n1;
+                                n1 = pop(c, stack);
+                                r = ~n1;
                                 push(c, stack, r);
                             }
                             break;
@@ -569,6 +591,10 @@ static void run(struct CPU_Context* c, uint8_t* memory)
             default:
                 c->exception = IllegalInstruction;
                 c->keep_going = false;
+        }
+        /* In single step mode we only do one instruction at a time */
+        if (c->single_step) {
+            c->keep_going = false;
         }
     }
     printf("Processor halted\n");
@@ -746,12 +772,30 @@ static void monitor(struct CPU_Context* context, uint8_t* memory)
                     printf("x <address> [count] -- examine memory\n");
                     printf("d <address> [count] -- disassemble memory\n");
                     printf("n                   -- single step\n");
-                    printf("s                   -- step into \n");
                     printf("l <filename>        -- load hex file\n");
                     printf("q                   -- quit\n");
+                    printf("p <address>         -- set program counter\n");
+                }
+                break;
+            case 'p':
+                {
+                    address = strtol(p.par1, NULL, 16);
+                    context->pc = address;
+                    printf("PC set to %04x\n", address);
+                    uint16_t instr = fetch_instruction(memory, address);
+                    disassemble((uint16_t)instr, code, address);
+                    printf("%04x %04x %s\n", address, (uint16_t)instr, code);
                 }
                 break;
             case 'n':
+                {
+                    context->single_step = true;
+                    run(context, memory);
+                    address = context->pc;
+                    uint16_t instr = fetch_instruction(memory, address);
+                    disassemble((uint16_t)instr, code, address);
+                    printf("%04x %04x %s\n", address, (uint16_t)instr, code);
+                }
                 break;
             case 'q':
                 do_monitor = false;

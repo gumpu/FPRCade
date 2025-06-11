@@ -111,20 +111,35 @@ The following is an example
 
 ### Directives
 
-    .str
+The following directives are supported:
     .align
     .b
     .w
     .l
+    .str
     .def
+    .set
 
-### Align
+### .align
 
 Align the next address to be word or long aligned.
 Examples:
 
     .align w
     .align l
+
+### .b .w .l
+
+### .str
+
+### .def
+
+Define a new symbol
+
+### .set
+
+Set an existing symbol to a new value
+
 
 ### Numbers
 
@@ -266,21 +281,29 @@ value types:
 
 ### ADD - Signed addition
 
+`ADD (s1 s2 -- s3)`
+
 Signed addition: s3 = s1 + s2
 
-`ADD (s1 s2 -- s3)`
+Assembler:
+
+    add
 
 ### ADDU - Unsigned addition
 
+`ADDU (u1 u2 -- u3)`
+
 Unsigned addition: u3 = u1 + u2
 
-`ADDU (u1 u2 -- u3)`
+Assembler:
+
+    addu
 
 ### AND - Bitwise and
 
-Bitwise and: n3 = n1 & n2
-
 `AND (n1 n2 -- n3)`
+
+Bitwise and: n3 = n1 & n2
 
 Assembler:
 

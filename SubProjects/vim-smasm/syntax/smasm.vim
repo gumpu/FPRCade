@@ -32,8 +32,8 @@ syn keyword smasmOpcode			leave enter nop ld ldl ldh dup swap
 syn keyword smasmOpcode			add gt lt bif neg halt
 syn keyword smasmOpcode			gtu gte gteu lte lteu not
 syn keyword smasmOpcode			eq xor or and drop
-syn keyword smasmOpcode			rd ird sto isto drop
-syn keyword smasmOpcode			mul mulu reset
+syn keyword smasmOpcode			rd ird sto isto
+syn keyword smasmOpcode			mul mulu reset lsr lsl asr mov
 
 hi def link smasmDirective	Type
 hi def link smasmLabel		Function

@@ -1,3 +1,8 @@
+/**
+ * Stack-master 16 emulator
+ *
+ */
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -65,27 +70,17 @@ static uint8_t* memory = NULL;
 
 /* --------------------------------------------------------------------*/
 
-static void push(
-    struct CPU_Context* c,
-    struct Stack* s,
-    uint16_t value);
-static uint16_t pop(
-    struct CPU_Context* c,
-    struct Stack* s);
+static void push(struct CPU_Context* c, struct Stack* s, uint16_t value);
+static uint16_t pop(struct CPU_Context* c, struct Stack* s);
 static void cpu_reset(struct CPU_Context* c);
-static uint16_t fetch_instruction(
-    uint8_t* memory,
-    uint16_t pc);
+static uint16_t fetch_instruction(uint8_t* memory, uint16_t pc);
 static void run(struct CPU_Context* c, uint8_t* memory);
 static uint8_t hex_get_byte(char* line, unsigned n);
 static bool load_hex(char* filename, uint8_t* memory);
 
 /* --------------------------------------------------------------------*/
 
-static void push(
-        struct CPU_Context* c,
-        struct Stack* s,
-        uint16_t value)
+static void push(struct CPU_Context* c, struct Stack* s, uint16_t value)
 {
     s->values[s->top] = value;
     (s->top)++;
@@ -95,9 +90,7 @@ static void push(
     }
 }
 
-static uint16_t pop(
-        struct CPU_Context* c,
-        struct Stack* s)
+static uint16_t pop(struct CPU_Context* c, struct Stack* s)
 {
     if (s->top == 0) {
         c->keep_going = false;
@@ -129,7 +122,7 @@ static void cpu_reset(struct CPU_Context* c)
     c->exception   = AllIsOK;
 }
 
-/*
+/**
  * Get pointer to the stack indicated by the stack ID.
  */
 struct Stack* get_stack(struct CPU_Context* c, uint16_t stack_id)
@@ -177,18 +170,17 @@ static uint16_t fetch_instruction(
 }
 
 
-/*
+/**
  * run the processor
  */
 
 static void run(struct CPU_Context* c, uint8_t* memory)
 {
-    printf("Running\n");
     while(c->keep_going) {
         c->instruction = fetch_instruction(memory, c->pc);
 
         uint16_t group = (c->instruction & 0xF000);
-        printf("%04x %04x\n", c->pc, c->instruction);
+        // printf("%04x %04x\n", c->pc, c->instruction);
         switch (group) {
             case 0x4000:
             case 0x5000:
@@ -245,6 +237,7 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                             c->exception = IllegalInstruction;
                             c->keep_going = false;
                     }
+                    (c->pc) += 2;
                 }
                 break;
             case 0xB000:
@@ -304,6 +297,7 @@ static void run(struct CPU_Context* c, uint8_t* memory)
                     value = pop(c, stack);
                     value = value | (high_bits_value << 10);
                     push(c, stack, value);
+                    (c->pc) += 2;
                 }
                 break;
             case 0xE000: /* 2 value operators */
@@ -591,16 +585,21 @@ static void run(struct CPU_Context* c, uint8_t* memory)
             default:
                 c->exception = IllegalInstruction;
                 c->keep_going = false;
+                (c->pc) += 2;
         }
         /* In single step mode we only do one instruction at a time */
         if (c->single_step) {
             c->keep_going = false;
         }
     }
-    printf("Processor halted\n");
-    printf("ExceptionCode: %d (%s)\n",
-            c->exception, exception_descriptions[c->exception]);
-    printf("Last instruction: 0x%04X\n", c->instruction);
+    if (!c->single_step) {
+        printf("Processor halted\n");
+        printf("ExceptionCode: %d (%s)\n",
+                c->exception, exception_descriptions[c->exception]);
+        printf("Last instruction: 0x%04X\n", c->instruction);
+    } else {
+        printf("Did one step, new address %04x\n", c->pc);
+    }
 }
 
 
@@ -691,6 +690,7 @@ static void parse_command_line(char* cl, ParameterSet* p)
     unsigned k;
 
     p->number_of_words = 0;
+    for (; isspace(cl[i]); ++i);
     for (k = 0; cl[i] != '\0'; ++i, ++k) {
         p->operation[k] = cl[i];
         if (isspace(cl[i])) { ++(p->number_of_words); break; }
@@ -717,18 +717,35 @@ static void monitor(struct CPU_Context* context, uint8_t* memory)
     static char commandline[FPEM_MAX_COMMAND_LINE_SIZE + 2];
     static ParameterSet p;
     bool do_monitor = true;
-    uint16_t address;
-    uint8_t  count;
+    uint16_t address = 0x0000;
+    uint8_t  count = 16;
+    char command = 'h';
 
     while (do_monitor) {
         fgets(commandline, FPEM_MAX_COMMAND_LINE_SIZE, stdin);
-        char command = commandline[0];
+
         parse_command_line(commandline, &p);
-        printf("%d: %s, %s, %s\n",
-                p.number_of_words,  p.operation, p.par1, p.par2);
+        if (p.number_of_words > 0) {
+            command = commandline[0];
+        } else {
+            /* Repeat last command, if repeatable */
+            switch (command) {
+                case 'n':
+                case 'd':
+                case 'x':
+                    break;
+                default:
+                    command = 'h';
+                    break;
+            }
+        }
+        // printf("%d: %s, %s, %s\n",
+        //         p.number_of_words,  p.operation, p.par1, p.par2);
         switch (command) {
             case 'r':
                 {
+                    context->single_step = false;
+                    context->keep_going = true;
                     address = strtol(p.par1, NULL, 16);
                     printf("run %04x\n", address);
                     run(context, memory);
@@ -736,8 +753,13 @@ static void monitor(struct CPU_Context* context, uint8_t* memory)
                 break;
             case 'd':
                 {
-                    address = strtol(p.par1, NULL, 16);
-                    count = strtol(p.par2, NULL, 16);
+                    if (p.number_of_words > 0) {
+                        address = strtol(p.par1, NULL, 16);
+                        count = strtol(p.par2, NULL, 16);
+                    } else {
+                        /* Repeat with previous parameters */
+                        address += 2*count;
+                    }
                     printf("disassemble %04x %04x\n", address, count);
                     for (uint16_t i = 0; i < count; i += 2) {
                         uint16_t instr = fetch_instruction(memory, address + i);
@@ -748,8 +770,13 @@ static void monitor(struct CPU_Context* context, uint8_t* memory)
                 break;
             case 'x':
                 {
-                    address = strtol(p.par1, NULL, 16);
-                    count = strtol(p.par2, NULL, 16);
+                    if (p.number_of_words > 0) {
+                        address = strtol(p.par1, NULL, 16);
+                        count = strtol(p.par2, NULL, 16);
+                    } else {
+                        /* Repeat with previous parameters */
+                        address += 16*count;
+                    }
                     printf("hexdump %04x %04x\n", address, count);
                     for (uint16_t i = 0; i < count; ++i) {
                         printf("%04x: ", (address +  16*i));
@@ -789,6 +816,7 @@ static void monitor(struct CPU_Context* context, uint8_t* memory)
                 break;
             case 'n':
                 {
+                    context->keep_going = true;
                     context->single_step = true;
                     run(context, memory);
                     address = context->pc;

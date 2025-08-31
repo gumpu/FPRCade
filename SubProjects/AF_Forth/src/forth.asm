@@ -28,4 +28,8 @@ loop:
     drop  d
     halt
 
+; (address value - )
+to_hex:
+    leave
+
 ; -------------------- end of file -----------------------------------------

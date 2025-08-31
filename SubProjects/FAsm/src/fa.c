@@ -351,6 +351,7 @@ static uint8_t  hex_current_byte = 0;
  * Routines to create output in .hex format
  * --------------------------------------------------------------------*/
 
+static uint32_t g_hex_bytes_written = 0;
 /**
  * Create a single .hex record containing n data items
  *
@@ -366,6 +367,7 @@ int hex_write_data_bytes(
 {
     int result;
     uint8_t checksum = 0;
+    g_hex_bytes_written += n;
     checksum += n;
     checksum += (uint8_t)((address) & 0xFF);
     checksum += (uint8_t)(address >> 8);
@@ -2372,7 +2374,7 @@ int main(int argc, char** argv)
 
         free_parsed_line(&parsed_line);
     }
-
+    printf("Program requires %d bytes\n", g_hex_bytes_written);
     return EXIT_SUCCESS;
 }
 

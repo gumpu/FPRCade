@@ -108,7 +108,7 @@ void fs_reset(T_Context* ctx)
 
     /* Address of the instruction to be executed after warm reset. */
     ctx->dataspace[0] = 0;
-    ctx->dataspace[0] = 0;
+    ctx->dataspace[0] = 0; // TODO ??? two times?
 
     ctx->ip = 0;
 
@@ -255,8 +255,7 @@ dataspace_index_t add_variable(
     return this_word;
 }
 
-/* Given an address make it 16 bit aligned by adding
- * one if necessary.
+/* Given an address make it 16 bit aligned by adding one if necessary.
  */
 dataspace_index_t allign(dataspace_index_t address)
 {

@@ -202,7 +202,7 @@ int main(int argc, char** argv)
     compile_outer_interpreter(&context);
     if (actions == 0) {
 #if 0
-        set_code(&context, ": TEST 100 100 + . ; ");
+//        set_code(&context, ": TEST 100 100 + . ; ");
 //        set_code(&context, ": ff dup dup + + ; 1 ff");
 //        set_code(&context, ": ff dup dup + + ;");
 #endif

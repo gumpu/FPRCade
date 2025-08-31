@@ -138,8 +138,13 @@ Define a new symbol
 
 ### .set
 
-Set an existing symbol to a new value
+Set an existing symbol to a new value, examples
 
+    .def foo 100
+    .def bar 200
+    .set foo 300
+    .set ccc foo+bar
+    .set foo 2*foo
 
 ### Numbers
 

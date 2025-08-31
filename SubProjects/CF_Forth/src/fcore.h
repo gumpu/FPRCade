@@ -35,9 +35,11 @@ typedef uint16_t word_flag_t;
 #define LOC_INPUT_BUFFER_COUNT (6+256+2)
 
 #define FORTH_FALSE (0x0000)
+// TODO  should be 1
 #define FORTH_TRUE  (0xFFFF)
 
 /* Maximum length of the name of a word in a dictionary */
+// TODO should be 31
 #define MAX_DE_NAME_LENGTH 40
 /* Flags used in DictHeader */
 #define F_INSTRUCTION  (1U << 0U)
@@ -46,14 +48,14 @@ typedef uint16_t word_flag_t;
 #define F_COMPILE_ONLY (1U << 3U)
 
 typedef struct DictHeader {
+    /* Pointer to the previous entry in the dictionary */
     dataspace_index_t previous;
-    /* Points to the last byte of this entry */
-    dataspace_index_t entry_end;
     /* Flags associated with the word.
      * i.e. direct, immediate, compile only, etc
      */
     word_flag_t flags;
     instruction_t semantics;
+    cell_t parameter_1;   /* Needed for does> */
     uint8_t name_length;  /* excluding the '\0' */
     char name[];          /* '\0' terminated */
 } T_DictHeader;

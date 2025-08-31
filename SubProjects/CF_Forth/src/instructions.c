@@ -67,6 +67,7 @@ instruction_pointer_t instr_enter(T_Context* ctx)
     return ip;
 }
 
+/* TODO Should be called exit */
 instruction_pointer_t instr_leave_colon(T_Context* ctx)
 {
     /* Restore the ip */

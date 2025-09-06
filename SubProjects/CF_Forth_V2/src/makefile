@@ -10,7 +10,7 @@ ff_objects = $(ff_sources:.c=.o)
 # Memory check
 # CFLAGS=-O0 -g -fsanitize=address -Wall
 # Debug
-CFLAGS=-O0 -g3 -gdwarf-4 -Wall -std=gnu99 -Wpedantic -fmax-errors=1 -Wno-unused-function
+CFLAGS=-O0 -g3 -gdwarf-4 -Wall -std=gnu99 -fmax-errors=1 -Wno-unused-function
 
 %.o : %.c
 	gcc $(CFLAGS) -c $< -o $@
@@ -27,9 +27,10 @@ options :
 	@echo "CC      = $(CC)"
 
 clean :
-	-rm -f ff utest
+	-rm -f ff
 	-rm -f *.o
 	-rm -f *.orig
+	-rm -f tags
 
 stats :
 	cloc .

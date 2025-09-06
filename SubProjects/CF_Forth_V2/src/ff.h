@@ -7,7 +7,8 @@
 #define FF_MEMORY_SIZE (65536)
 #define FF_CELL_SIZE (2)
 
-/* Default FORTH-79 string type,
+/**
+ * Default FORTH-79 string type,
  * Strings can be max 127 characters long. */
 typedef struct {
     int8_t count;
@@ -74,29 +75,28 @@ typedef struct Stack {
     address_type bottom;
 } T_Stack;
 
-#define EF_MACHINE_CODE (1 << 0)
-#define EF_IMMEDIATE    (1 << 1)
+#define EF_MACHINE_CODE     (1 << 0)
+#define EF_IMMEDIATE        (1 << 1)
 #define EF_COLON_DEF_ONLY   (1 << 2)
+#define EF_HIDDEN           (1 << 3)
 
 typedef struct DictHeader {
-    /* Pointer to the previous entry in the dictionary */
-    /* If this is ZERO, this is the final entry */
+    /* Pointer to the previous entry in the dictionary If this is ZERO, this
+     * is the final entry */
     address_type previous;
     word_flag_type flags;
     /* Semantics; */
     instruction_type code_field;  /* Code to execute for the word */
     address_type does_code;       /* Needed for does> */
     /* The word itself */
-    uint8_t name_length;             /* excluding the '\0' */
-    char name[];                     /* '\0' terminated */
+    T_PackedString name;
 } T_DictHeader;
 
 #define DE_PREVIOUS (0)
 #define DE_FLAGS (2)
 #define DE_CODE_FIELD (4)
 #define DE_DOES_CODE (6)
-#define DE_NAME_LENGTH (8)
-#define DE_NAME_CHARS (9)
+#define DE_NAME (8)
 #define DE_SIZE_MIN (10)
 
 typedef struct Context {
@@ -123,11 +123,34 @@ typedef struct Context {
 
 typedef instruction_pointer_type (*function_type)(T_Context*, address_type);
 
-
-
 extern void CF_RealAssert(bool value, int line);
 /* Normal assert() crashes/confuses gdb
  */
 #define CF_Assert(value) CF_RealAssert(value, __LINE__)
+
+typedef enum {
+    eOP_SPACE = 0,
+    eOP_CREATE,
+    eOP_CREATE_RT,
+    eOP_WORD,
+    eOP_ALLOT,
+    eOP_ENTER,
+    eOP_EXIT,
+    eOP_EXECUTE,
+    eOP_JUMP,
+    eOP_PUSH,
+    eOP_DROP,
+    eOP_FIND,
+    eOP_STATE,
+    eOP_QUERY,
+    eOP_COLON,
+    eOP_SEMICOLON,
+    eOP_COMMA,
+    eOP_DOT,
+
+    /* This always needs to be the last entry */
+    eOP_MAX_OP_CODE
+} T_OpCode;
+
 
 #endif /* HG_FF_H */

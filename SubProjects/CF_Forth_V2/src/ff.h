@@ -17,19 +17,23 @@ typedef struct {
 
 /* Location in the dataspace of the various default variables  */
 /* Location 0x0000 is reserved */
-#define FF_LOC_HERE               (1*FF_CELL_SIZE)     /* HERE */
-#define FF_LOC_STATE              (2*FF_CELL_SIZE)     /* STATE */
-#define FF_LOC_INPUT_BUFFER_INDEX (3*FF_CELL_SIZE)     /* >IN */
-#define FF_LOC_INPUT_BUFFER_COUNT (4*FF_CELL_SIZE)
+#define FF_LOC_HERE               (1*FF_CELL_SIZE)   /* HERE */
+#define FF_LOC_STATE              (2*FF_CELL_SIZE)   /* STATE */
+#define FF_LOC_BASE               (3*FF_CELL_SIZE)   /* BASE */
+#define FF_LOC_INPUT_BUFFER_INDEX (4*FF_CELL_SIZE)   /* >IN */
+#define FF_LOC_INPUT_BUFFER_COUNT (5*FF_CELL_SIZE)
+#define FF_LOC_WORD_BUFFER        (6*FF_CELL_SIZE)
 #define FF_INPUT_BUFFER_SIZE      (1024)
 #define FF_WORD_BUFFER_SIZE       (1+127)
-#define FF_LOC_WORD_BUFFER        (5*FF_CELL_SIZE)
 #define FF_LOC_INPUT_BUFFER       (FF_LOC_WORD_BUFFER+FF_WORD_BUFFER_SIZE)
 #define FF_SYSTEM_VARIABLES_END   (FF_LOC_INPUT_BUFFER+FF_INPUT_BUFFER_SIZE)
 
 #define FF_RETURN_STACK_SIZE (24)
 #define FF_CONTROL_STACK_SIZE (20)
 #define FF_DATA_STACK_SIZE (32)
+
+#define FF_STATE_COMPILING (1)
+#define FF_STATE_INTERPRETING (0)
 
 typedef uint16_t unsigned_cell_type;
 typedef uint16_t cell_type;
@@ -54,14 +58,18 @@ typedef cell_type execution_token_type;
 
 /**
  * Flags associated with the word:
- * immediate
- * compile_only
- * machine_code_run_time
- * colon_run_time
- * create_run_time
- * does_run_time
+ *
+ * - immediate,  do not compile but run immediately
+ * - colon_def_only, can only be used inside a colon definition
+ * - compile_only, can only be used with in compile mode
  */
 typedef uint16_t word_flag_type;
+
+#define EF_MACHINE_CODE     (1 << 0)
+#define EF_IMMEDIATE        (1 << 1)
+#define EF_COLON_DEF_ONLY   (1 << 2)
+#define EF_COMPILE_ONLY     (1 << 3)
+#define EF_HIDDEN           (1 << 4)
 
 #define FORTH_FALSE (0x0000)
 #define FORTH_TRUE  (0x0001)
@@ -74,11 +82,6 @@ typedef struct Stack {
     address_type where;
     address_type bottom;
 } T_Stack;
-
-#define EF_MACHINE_CODE     (1 << 0)
-#define EF_IMMEDIATE        (1 << 1)
-#define EF_COLON_DEF_ONLY   (1 << 2)
-#define EF_HIDDEN           (1 << 3)
 
 typedef struct DictHeader {
     /* Pointer to the previous entry in the dictionary If this is ZERO, this
@@ -138,6 +141,7 @@ typedef enum {
     eOP_EXIT,
     eOP_EXECUTE,
     eOP_JUMP,
+    eOP_JUMP_IF,
     eOP_PUSH,
     eOP_DROP,
     eOP_FIND,
@@ -147,10 +151,26 @@ typedef enum {
     eOP_SEMICOLON,
     eOP_COMMA,
     eOP_DOT,
+    eOP_BEGIN,
+    eOP_THEN,
+    eOP_IF,
+    eOP_ELSE,
+    eOP_WHILE,
+    eOP_REPEAT,
+    eOP_AGAIN,
+    eOP_LITERAL,
+    eOP_EMIT,
+    eOP_ABORT,
+    eOP_IMMEDIATE,
+    eOP_QIMMEDIATE,
+    eOP_BYE,
+    eOP_PLUS,
+    eOP_AT,
+    eOP_C_AT,
+    eOP_PASS,
 
     /* This always needs to be the last entry */
     eOP_MAX_OP_CODE
 } T_OpCode;
-
 
 #endif /* HG_FF_H */

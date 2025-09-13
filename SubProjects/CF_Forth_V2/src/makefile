@@ -4,7 +4,7 @@
 HEADERS=$(wildcard *.h)
 SOURCES=$(wildcard *.c)
 
-ff_sources = ff.c
+ff_sources = ff.c interpret.c
 ff_objects = $(ff_sources:.c=.o)
 
 # Memory check
@@ -17,6 +17,9 @@ CFLAGS=-O0 -g3 -gdwarf-4 -Wall -std=gnu99 -fmax-errors=1 -Wno-unused-function
 
 ff : $(ff_objects)
 	gcc -g3 $(ff_objects) -o ff
+
+interpret.c : interpret.forth to_c.py
+	python to_c.py interpret.forth > interpret.c
 
 all : ff
 
@@ -31,6 +34,7 @@ clean :
 	-rm -f *.o
 	-rm -f *.orig
 	-rm -f tags
+	-rm -f interpret.c  # Generated
 
 stats :
 	cloc .

@@ -1,3 +1,8 @@
+/** vi: spell spl=en
+ *
+ * This is an implementation of FORTH based on the FORTH-79 standard.
+ */
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <getopt.h>
@@ -5,6 +10,7 @@
 #include <string.h>
 #include <stdbool.h>
 
+#include "interpret.h"
 #include "ff.h"
 
 /* --------------------------------------------------------------------*/
@@ -22,7 +28,11 @@ static void FF_Exit(int line)
 
 void CF_RealAssert(bool value, int line)
 {
-    if (value) { return; } else { FF_Exit(line); }
+    if (value) {
+        return;
+    } else {
+        FF_Exit(line);
+    }
 }
 
 /* --------------------------------------------------------------------*/
@@ -112,7 +122,7 @@ static address_type align(address_type address)
     return n;
 }
 
-/*
+/**
  * Initialize a stack.  Claims a region of the memory
  * starting at the byte pointed to by 'where'.
  *
@@ -145,7 +155,6 @@ static bool compare_packed_string(
     return result;
 }
 
-// TODO packed  instead of packet
 static void copy_packed_string(
         T_PackedString* source,
         T_PackedString* dest)
@@ -221,7 +230,6 @@ static void paste_code(T_Context* ctx, char* code)
     }
 }
 
-
 static void ff_reset(T_Context* ctx)
 {
     ctx->run = true;
@@ -240,6 +248,54 @@ static void ff_reset(T_Context* ctx)
 }
 
 /* --------------------------------------------------------------------*/
+/**
+ * Given an opcode find the first dictionary entry that uses this
+ * opcode.  This is used to find words such as BEGIN, END, IF, etc
+ * during compilation.
+ *
+ * NOTE: This is a place where optimization is possible.
+ */
+static address_type find_via_opcode(T_Context* ctx, T_OpCode opcode)
+{
+    address_type h = ctx->dict_head;
+    address_type word_found;
+    T_DictHeader* header;
+    bool found;
+
+    do {
+        /* Assume we found the word, until proven otherwise */
+        word_found = h;
+        header = (T_DictHeader*)(ctx->dataspace+h);
+
+        /* Check if they match */
+        found = (header->code_field == opcode);
+
+        /* Next entry in the dictionary */
+        h = header->previous;
+    } while ((h != 0) && (!found));
+
+    /* This function is used internally, and should always succeed */
+    CF_Assert(found);
+
+    return word_found;
+}
+
+/* --------------------------------------------------------------------*/
+
+/**
+ * BEGIN
+ *
+ * Compile time behaviour for BEGIN.  Stores the current value
+ * of HERE on the control stack.  The data will be later used by
+ * one of the loop constructs to create a JUMP...  to this address.
+ */
+static instruction_pointer_type instr_begin(
+        T_Context* ctx, address_type dict_entry)
+{
+    address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
+    push(ctx->dataspace, &(ctx->control_stack), here);
+    return (ctx->ip + 2);
+}
 
 /**
  * Implementation of WORD
@@ -252,7 +308,8 @@ static void ff_reset(T_Context* ctx)
  * word buffer.
  *
  */
-instruction_pointer_type instr_word(T_Context* ctx, address_type dict_entry)
+static instruction_pointer_type instr_word(
+        T_Context* ctx, address_type dict_entry)
 {
     index_type i;
     index_type n;
@@ -308,7 +365,6 @@ instruction_pointer_type instr_word(T_Context* ctx, address_type dict_entry)
     return (ctx->ip + 2);
 }
 
-
 /**
  * FIND (  --  addr )
  *
@@ -322,7 +378,8 @@ instruction_pointer_type instr_word(T_Context* ctx, address_type dict_entry)
  *
  * The word extracted will be in the word buffer
  */
-instruction_pointer_type instr_find(T_Context* ctx, address_type dict_entry)
+static instruction_pointer_type instr_find(
+        T_Context* ctx, address_type dict_entry)
 {
     T_DictHeader* header;
     T_PackedString* word_to_find;
@@ -369,7 +426,7 @@ instruction_pointer_type instr_find(T_Context* ctx, address_type dict_entry)
  * to create a new entry in the dictionary.
  */
 
-instruction_pointer_type instr_create(
+static instruction_pointer_type instr_create(
         T_Context* ctx, address_type dict_entry)
 {
     T_PackedString* word_found;
@@ -395,7 +452,8 @@ instruction_pointer_type instr_create(
  * on stack.
  *
  */
-instruction_pointer_type instr_create_rt(T_Context* ctx, address_type dict_entry)
+static instruction_pointer_type instr_create_rt(
+        T_Context* ctx, address_type dict_entry)
 {
     // TODO
     T_DictHeader* header = (T_DictHeader*)(&(ctx->dataspace[dict_entry]));
@@ -403,7 +461,6 @@ instruction_pointer_type instr_create_rt(T_Context* ctx, address_type dict_entry
     address_type parameter_field = dict_entry;
     parameter_field += n + DE_SIZE_MIN;
     //
-    // TODO FIXME this should be align
     parameter_field = align(parameter_field);
     push(ctx->dataspace, &(ctx->data_stack), parameter_field);
     return (ctx->ip + 2);
@@ -416,7 +473,8 @@ instruction_pointer_type instr_create_rt(T_Context* ctx, address_type dict_entry
  * TODO: Also to be used for  EXPECT  which read n characters into
  * a buffer given by an address.
  */
-instruction_pointer_type instr_query(T_Context* ctx)
+static instruction_pointer_type instr_query(
+        T_Context* ctx, address_type dict_entry)
 {
     char buffer[81];
     fgets(buffer, 80, stdin);
@@ -427,7 +485,8 @@ instruction_pointer_type instr_query(T_Context* ctx)
 /**
  * EXECUTE   ( xt -- )
  */
-instruction_pointer_type instr_execute(T_Context* ctx, address_type dict_entry)
+static instruction_pointer_type instr_execute(
+        T_Context* ctx, address_type dict_entry)
 {
     // the xt points to the dictionary entry
     address_type word = pop(ctx->dataspace, &(ctx->data_stack));
@@ -442,9 +501,38 @@ instruction_pointer_type instr_execute(T_Context* ctx, address_type dict_entry)
  *
  * Needed to implement loops and branches.
  */
-instruction_pointer_type instr_jump(T_Context* ctx, address_type dict_entry)
+static instruction_pointer_type instr_jump(
+        T_Context* ctx, address_type dict_entry)
 {
-    address_type  address = ctx->dataspace[ctx->ip + 2];
+    address_type address;
+
+    address = fetch16ubits(ctx->dataspace, ctx->ip + 2);
+
+    return address;
+}
+
+/**
+ * JUMP_IF_FALSE <new location>
+ *
+ * (flag -- )
+ *
+ * Needed to implement loops and branches.
+ */
+
+static instruction_pointer_type instr_jump_if_false(
+        T_Context* ctx, address_type word)
+{
+    address_type address;
+
+    cell_type n = pop(ctx->dataspace, &(ctx->data_stack));
+
+    if (n == 0) { /* False */
+        address = fetch16ubits(ctx->dataspace, ctx->ip + 2);
+    } else { /* True */
+        /* Continue at the location after the jump instruction */
+        address = ctx->ip + 4;
+    }
+
     return address;
 }
 
@@ -452,7 +540,8 @@ instruction_pointer_type instr_jump(T_Context* ctx, address_type dict_entry)
  * ALLOT  (n -- )  add n bytes to the parameter field of the most
  * recently defined word.
  */
-instruction_pointer_type instr_allot(T_Context* ctx, address_type dict_entry)
+static instruction_pointer_type instr_allot(
+        T_Context* ctx, address_type dict_entry)
 {
     cell_type n = pop(ctx->dataspace, &(ctx->data_stack));
     address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
@@ -464,8 +553,11 @@ instruction_pointer_type instr_allot(T_Context* ctx, address_type dict_entry)
 /**
  * All unused Opcodes map to this instruction
  */
-instruction_pointer_type instr_illegal(T_Context* ctx, address_type dict_entry)
+static instruction_pointer_type instr_illegal(
+        T_Context* ctx, address_type dict_entry)
 {
+    uint16_t code = fetch16ubits(ctx->dataspace, ctx->ip);
+    printf("Illegal instruction %d at %d\n", code, ctx->ip);
     CF_Assert(false);
     return 0;
 }
@@ -478,7 +570,8 @@ instruction_pointer_type instr_illegal(T_Context* ctx, address_type dict_entry)
  *
  * 0 means non-compiling, any other value means compiling.
  */
-instruction_pointer_type instr_state(T_Context* ctx, address_type dict_entry)
+static instruction_pointer_type instr_state(
+        T_Context* ctx, address_type dict_entry)
 {
     push(ctx->dataspace, &(ctx->data_stack), FF_LOC_STATE);
     return (ctx->ip + 2);
@@ -491,7 +584,8 @@ instruction_pointer_type instr_state(T_Context* ctx, address_type dict_entry)
  * Set the IP to the address of the parameter field of the word
  * associated with this ENTER and continue running there.
  */
-instruction_pointer_type instr_enter(T_Context* ctx, address_type dict_entry)
+static instruction_pointer_type instr_enter(
+        T_Context* ctx, address_type dict_entry)
 {
     push(ctx->dataspace, &(ctx->return_stack), ctx->ip + 2);
 
@@ -504,10 +598,38 @@ instruction_pointer_type instr_enter(T_Context* ctx, address_type dict_entry)
 }
 
 /**
+ * ' <name>
+ *
+ */
+
+static instruction_pointer_type instr_tick(
+        T_Context* ctx, address_type dict_entry)
+{
+#if 0
+    T_PackedString* word_found;
+    push(ctx->dataspace, &(ctx->data_stack), ' ');
+    instr_word(ctx, dict_entry);
+    word_found = (T_PackedString*)(&(ctx->dataspace[FF_LOC_WORD_BUFFER]));
+
+    if (word_found->count > 0) {
+        address_type parameter_field = dict_entry;
+        parameter_field += n + DE_SIZE_MIN;
+        //
+        parameter_field = align(parameter_field);
+        push(ctx->dataspace, &(ctx->data_stack), parameter_field);
+    } else {
+        // Error condition
+    }
+#endif
+    return (ctx->ip + 2);
+}
+
+/**
  * : <name>
  *
  */
-instruction_pointer_type instr_colon(T_Context* ctx, address_type dict_entry)
+static instruction_pointer_type instr_colon(
+        T_Context* ctx, address_type dict_entry)
 {
     T_PackedString* word_found;
     push(ctx->dataspace, &(ctx->data_stack), ' ');
@@ -518,7 +640,7 @@ instruction_pointer_type instr_colon(T_Context* ctx, address_type dict_entry)
         header->flags |= EF_MACHINE_CODE;
         header->code_field = eOP_ENTER;
         /* Set state to compiling */
-        store16ubits(ctx->dataspace, FF_LOC_STATE, 1);
+        store16ubits(ctx->dataspace, FF_LOC_STATE, FF_STATE_COMPILING);
     } else {
         // TODO
         // Error and abort
@@ -527,9 +649,14 @@ instruction_pointer_type instr_colon(T_Context* ctx, address_type dict_entry)
     return (ctx->ip + 2);
 }
 
-instruction_pointer_type instr_semicolon(T_Context* ctx, address_type dict_entry)
+/**
+ * ;
+ *
+ */
+static instruction_pointer_type instr_semicolon(
+        T_Context* ctx, address_type dict_entry)
 {
-    store16ubits(ctx->dataspace, FF_LOC_STATE, 0);
+    store16ubits(ctx->dataspace, FF_LOC_STATE, FF_STATE_INTERPRETING);
     return (ctx->ip + 2);
 }
 
@@ -558,7 +685,8 @@ static int16_t to_digit(char c, uint16_t base)
  * That is store n in the location pointed to by HERE
  * and increase HERE by 2.
  */
-instruction_pointer_type instr_comma(T_Context* ctx, address_type word)
+static instruction_pointer_type instr_comma(
+        T_Context* ctx, address_type word)
 {
     cell_type number = pop(ctx->dataspace, &(ctx->data_stack));
     address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
@@ -578,9 +706,8 @@ instruction_pointer_type instr_comma(T_Context* ctx, address_type word)
  *
  */
 
-instruction_pointer_type instr_dot(T_Context* ctx, address_type word)
+static instruction_pointer_type instr_dot(T_Context* ctx, address_type word)
 {
-
     signed_cell_type n =
         (signed_cell_type)(pop(ctx->dataspace, &(ctx->data_stack)));
 
@@ -590,6 +717,14 @@ instruction_pointer_type instr_dot(T_Context* ctx, address_type word)
     return (ctx->ip + 2);
 }
 
+/**
+ * DROP  (n -- )
+ */
+static instruction_pointer_type instr_drop(T_Context* ctx, address_type word)
+{
+    (void)(pop(ctx->dataspace, &(ctx->data_stack)));
+    return (ctx->ip + 2);
+}
 
 /**
  * (NUMBER)  ( addr -- addr 0 | n 1 )
@@ -604,8 +739,11 @@ instruction_pointer_type instr_dot(T_Context* ctx, address_type word)
  *
  * Numbers without a prefix are converted using the base value
  * stored in BASE.   (TODO currently fixed to 10)
+ *
+ * Returns  addr 0  when the conversion failed
+ * Returns  n    1  when the conversion succeeded
  */
-instruction_pointer_type instr_pnumber(T_Context* ctx, address_type word)
+static instruction_pointer_type instr_pnumber(T_Context* ctx, address_type word)
 {
     cell_type c_addr = pop(ctx->dataspace, &(ctx->data_stack));
 
@@ -711,6 +849,246 @@ instruction_pointer_type instr_pnumber(T_Context* ctx, address_type word)
     return (ctx->ip + 2);
 }
 
+/**
+ * LITERAL
+ *
+ * If  compiling,  then  compile  the stack value n as  a  16-bit literal,
+ * which when later executed, will leave n on the stack.
+ */
+static instruction_pointer_type instr_literal(T_Context* ctx, address_type word)
+{
+    cell_type n = pop(ctx->dataspace, &(ctx->data_stack));
+    address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
+    address_type push_entry = find_via_opcode(ctx, eOP_PUSH);
+    store16ubits(ctx->dataspace, here, push_entry);
+    here += 2;
+    store16ubits(ctx->dataspace, here, n);
+    here += 2;
+    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+    return (ctx->ip + 2);
+}
+
+/**
+ * EMIT
+ * ( char -- )
+ * Transmit character to the current output device.
+ */
+static instruction_pointer_type instr_emit(T_Context* ctx, address_type word)
+{
+    cell_type c = pop(ctx->dataspace, &(ctx->data_stack));
+    printf("%c", (char)c);
+    return (ctx->ip + 2);
+}
+
+/**
+ * ABORT
+ *
+ * Clear  the  data and return stacks,  setting  execution  mode.
+ * Return control to the terminal.
+ */
+
+static instruction_pointer_type instr_abort(T_Context* ctx, address_type word)
+{
+    // TODO
+    return 0; // TODO
+}
+
+
+static instruction_pointer_type instr_at(
+        T_Context* ctx, address_type word)
+{
+    cell_type a = pop(ctx->dataspace, &(ctx->data_stack));
+    cell_type v = fetch16ubits(ctx->dataspace, a);
+    push(ctx->dataspace, &(ctx->data_stack), v);
+    return (ctx->ip + 2);
+}
+
+static instruction_pointer_type instr_c_at(
+        T_Context* ctx, address_type word)
+{
+    cell_type a = pop(ctx->dataspace, &(ctx->data_stack));
+    cell_type v = fetch8bits(ctx->dataspace, a);
+    push(ctx->dataspace, &(ctx->data_stack), v);
+    return (ctx->ip + 2);
+}
+
+static instruction_pointer_type instr_pass(
+        T_Context* ctx, address_type word)
+{
+    return (ctx->ip + 2);
+}
+
+/**
+ * IMMEDIATE
+ *
+ * Mark the most recently defined word as being an immediate word
+ */
+static instruction_pointer_type instr_immediate(
+        T_Context* ctx, address_type word)
+{
+    T_DictHeader* header;
+
+    address_type current_head = ctx->dict_head;
+    header = (T_DictHeader*)(ctx->dataspace + current_head);
+    header->flags |= EF_IMMEDIATE;
+
+    return (ctx->ip + 2);
+}
+
+/**
+ * ?IMMEDIATE
+ *
+ * ( xt -- flag )
+ *
+ * Return TRUE if the word pointed to by xt is an immediate word
+ *
+ */
+
+static instruction_pointer_type instr_qimmediate(
+        T_Context* ctx, address_type word)
+{
+    T_DictHeader* header;
+
+    cell_type xt = pop(ctx->dataspace, &(ctx->data_stack));
+    header = (T_DictHeader*)(ctx->dataspace + xt);
+
+    if (header->flags & EF_IMMEDIATE) {
+        push(ctx->dataspace, &(ctx->data_stack), FORTH_TRUE);
+    } else {
+        push(ctx->dataspace, &(ctx->data_stack), FORTH_FALSE);
+    }
+
+    return (ctx->ip + 2);
+}
+
+static instruction_pointer_type instr_push(
+        T_Context* ctx, address_type word)
+{
+    CF_Assert(false); // TODO
+    return (ctx->ip + 2);
+}
+
+/**
+ * IF
+ *
+ * Compile time behaviour for IF.  Stores the current value + 2
+ * of HERE on the control stack.  This data will be later used by
+ * THEN so fill in the address for the JUMP_IF_FALSE instruction.
+ *
+ * There are two types:
+ *
+ * Type 1
+ *
+ * IF                   jump_if_false <address1>
+ *
+ * ELSE                 jump <address2>
+ *           <address1> pass
+ *
+ * THEN      <address2> pass
+ *
+ *
+ * Type 2
+ *
+ * IF                   jump_if_false <address2>
+ *
+ * THEN      <address2> pass
+ *
+ */
+
+static instruction_pointer_type instr_if(
+        T_Context* ctx, address_type dict_entry)
+{
+    address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
+
+    /* Add  JUMP_IF_FALSE <address> to the current entry */
+    address_type jump_if_false_entry = find_via_opcode(ctx, eOP_JUMP_IF);
+    store16ubits(ctx->dataspace, here, jump_if_false_entry);
+    here += 2;
+    /* Place holder for the address to jump to, will lead to an illegal
+     * instruction if by mistake it is not filled in. */
+    store16ubits(ctx->dataspace, here, 0U);
+
+    /* Push this address on the control stack, so the next ELSE or
+     * THEN can overwrite it with the real value.
+     */
+    push(ctx->dataspace, &(ctx->control_stack), here);
+
+    here += 2;
+
+    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+
+    return (ctx->ip + 2);
+}
+
+/**
+ * THEN
+ */
+
+static instruction_pointer_type instr_then(
+        T_Context* ctx, address_type word)
+{
+    address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
+    address_type pass_entry = find_via_opcode(ctx, eOP_PASS);
+    store16ubits(ctx->dataspace, here, pass_entry);
+
+    /* Fill in the address of the previous ELSE or IF */
+    address_type a = pop(ctx->dataspace, &(ctx->control_stack));
+    store16ubits(ctx->dataspace, a, here);
+
+    here += 2;
+    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+
+    return (ctx->ip + 2);
+}
+
+/**
+ * ELSE
+ */
+
+static instruction_pointer_type instr_else(
+        T_Context* ctx, address_type word)
+{
+    address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
+    address_type jump_entry = find_via_opcode(ctx, eOP_JUMP);
+    store16ubits(ctx->dataspace, here, jump_entry);
+    here += 2;
+
+    /* Fill in the address field of the previous by IF generated jump_if_false
+     * instruction.
+     */
+    address_type a = pop(ctx->dataspace, &(ctx->control_stack));
+    store16ubits(ctx->dataspace, a, here);
+
+    push(ctx->dataspace, &(ctx->control_stack), here);
+
+    here += 2;
+    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+
+    return (ctx->ip + 2);
+}
+
+static instruction_pointer_type instr_again(
+        T_Context* ctx, address_type word)
+{
+    address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
+    address_type jump_entry = find_via_opcode(ctx, eOP_PASS);
+    store16ubits(ctx->dataspace, here, jump_entry);
+    here += 2;
+
+    /* Fill in the address field of the previous by
+     * BEGIN instruction.
+     */
+    address_type a = pop(ctx->dataspace, &(ctx->control_stack));
+    store16ubits(ctx->dataspace, a, here);
+
+    push(ctx->dataspace, &(ctx->control_stack), here);
+
+    here += 2;
+    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+
+    return (ctx->ip + 2);
+}
+
 /* --------------------------------------------------------------------*/
 
 static void usage(void)
@@ -759,17 +1137,32 @@ static void fill_instruction_table(void)
     }
 
     /* Then overwrite some to make them legal. */
+    instruction_table[eOP_DROP]      = instr_drop;
     instruction_table[eOP_WORD]      = instr_word;
     instruction_table[eOP_CREATE]    = instr_create;
     instruction_table[eOP_CREATE_RT] = instr_create_rt;
     instruction_table[eOP_EXECUTE]   = instr_execute;
-    instruction_table[eOP_JUMP]      = instr_jump;
     instruction_table[eOP_ALLOT]     = instr_allot;
     instruction_table[eOP_STATE]     = instr_state;
     instruction_table[eOP_COLON]     = instr_colon;
     instruction_table[eOP_SEMICOLON] = instr_semicolon;
     instruction_table[eOP_COMMA]     = instr_comma;
     instruction_table[eOP_DOT]       = instr_dot;
+    instruction_table[eOP_EMIT]      = instr_emit;
+    instruction_table[eOP_BEGIN]     = instr_begin;
+    instruction_table[eOP_IF]        = instr_if;
+    instruction_table[eOP_THEN]      = instr_then;
+    instruction_table[eOP_JUMP]      = instr_jump;
+    instruction_table[eOP_JUMP_IF]   = instr_jump_if_false;
+    instruction_table[eOP_QUERY]     = instr_query;
+    instruction_table[eOP_IMMEDIATE] = instr_immediate;
+    instruction_table[eOP_QIMMEDIATE] = instr_qimmediate;
+    instruction_table[eOP_AT]        = instr_at;
+    instruction_table[eOP_C_AT]      = instr_c_at;
+    instruction_table[eOP_PASS]      = instr_pass;
+    instruction_table[eOP_PUSH]      = instr_push;
+    instruction_table[eOP_LITERAL]   = instr_literal;
+    instruction_table[eOP_AGAIN]     = instr_again;
 }
 
 /* --------------------------------------------------------------------*/
@@ -809,9 +1202,10 @@ void info(T_Context* ctx)
             printf("  code_field: %u\n", header->code_field);
             printf("  flags (%02x):", header->flags);
             flags = header->flags;
-            if (flags & EF_IMMEDIATE)      { printf(" immediate"); }
-            if (flags & EF_MACHINE_CODE)   { printf(" machine_code"); }
-            if (flags & EF_COLON_DEF_ONLY) { printf(" colon_def_only"); }
+            if (flags & EF_IMMEDIATE)      { printf(" immediate,"); }
+            if (flags & EF_MACHINE_CODE)   { printf(" machine_code,"); }
+            if (flags & EF_HIDDEN)         { printf(" hidden,"); }
+            if (flags & EF_COMPILE_ONLY)   { printf(" compile time only,"); }
             printf("\n");
 
             h = header->previous;
@@ -831,8 +1225,13 @@ static void tst_dump_word_buffer(T_Context* ctx)
 }
 
 /**
+ * Inner Interpreter
+ *
  * Executes instruction pointed to by context->ip This is what makes FORTH
  * run.
+ *
+ * This runs until ctx->run becomes false. This is used by BYE to force an
+ * exit of the program.
  */
 void inner_interpreter(T_Context* ctx)
 {
@@ -841,7 +1240,7 @@ void inner_interpreter(T_Context* ctx)
     instruction_type opcode;
 
     while(ctx->run) {
-        /* Fetch instruction (address of the word to be executed) */
+        /* Fetch instruction (dictionary address of the word to be executed) */
         word = ctx->dataspace[ctx->ip];
         header = (T_DictHeader*)(&(ctx->dataspace[word]));
         /* The word itself will fetch any additional data needed and
@@ -852,48 +1251,158 @@ void inner_interpreter(T_Context* ctx)
 }
 
 /**
- *
+ * Mini version of INTERPRET that allows to run and compile
+ * code. It does not do any error checking.
+ * This function is used to compile the full version of INTERPRET
+ * written in FORTH.
  */
-void mini_interpret(T_Context* ctx, int n)
+void mini_interpret(T_Context* ctx)
 {
-    for (unsigned i = 0; i < n; ++i) {
+    bool a_word_was_found = true;
+
+    do {
+        cell_type state;
+
+        state = fetch16ubits(ctx->dataspace, FF_LOC_STATE);
+
         instr_find(ctx, 0);
         address_type word = pop(ctx->dataspace, &(ctx->data_stack));
-        if (word == 0) {
-            /* Not a word but a number */
-            /* run:  WORD_BUFFER PNUMBER */
-            push(ctx->dataspace, &(ctx->data_stack), FF_LOC_WORD_BUFFER);
-            instr_pnumber(ctx, 0);
-        } else {
-            push(ctx->dataspace, &(ctx->data_stack), word);
-            instr_execute(ctx, word);
+        uint8_t n = fetch8ubits(ctx->dataspace, FF_LOC_WORD_BUFFER);
+
+        if ((word == 0) && (n == 0)) {
+            /* Zero can mean, the name of word was not found in the dictionary,
+             * OR there were no more words in the input stream.
+             */
+            a_word_was_found = (n > 0);
         }
-    }
+
+        if (!a_word_was_found) {
+            /* There were no more words, so nothing to do */
+        } else {
+            /* A word was found */
+            if (word == 0) {
+                /* Not a word that was in the dictionary, so it should be a
+                 * number */
+                /* run:  WORD_BUFFER PNUMBER */
+                push(ctx->dataspace, &(ctx->data_stack), FF_LOC_WORD_BUFFER);
+                instr_pnumber(ctx, 0);
+                /* Assume conversion always succeeds */
+                instr_drop(ctx, 0);
+
+                if (state == FF_STATE_COMPILING) {
+                    instr_literal(ctx, 0);
+                } else {
+                    /* Leave the number on the data stack */
+                }
+            } else {
+                push(ctx->dataspace, &(ctx->data_stack), word);
+
+                if (state == FF_STATE_COMPILING) {
+                    /* Is it an immediate word? */
+                    T_DictHeader* header;
+                    word_flag_type flags;
+                    header = (T_DictHeader*)(ctx->dataspace + word);
+                    flags = header->flags;
+                    if (flags & EF_IMMEDIATE) {
+                        /* Execute immediately */
+                        instr_execute(ctx, word);
+                    } else {
+                        /* Compile into the current dictionary entry */
+                        instr_comma(ctx, 0);
+                    }
+                } else {
+                    instr_execute(ctx, word);
+                }
+            }
+        }
+    } while (a_word_was_found);
 }
 
-void add_core_word(T_Context* ctx, char* c_name, T_OpCode op_code)
+/**
+ * Add a core word to the dictionary. These are words that
+ * are directly implemented in C.
+ */
+T_DictHeader* add_core_word(
+        T_Context* ctx, char* c_name, T_OpCode op_code, word_flag_type flags)
 {
     static char buffer[sizeof(T_PackedString) + FF_MAX_DE_NAME_LENGTH];
+
     T_PackedString* name = (T_PackedString*) &(buffer[0]);
     clone_c_string(c_name, name);
     T_DictHeader* header = add_dict_entry(ctx, name);
     header->code_field = op_code;
+    header->flags = flags;
+    return header;
 }
 
+/**
+ * Fill the dictionary with enough words to compile INTERPRET.
+ * Then use that to compile the remaining words.
+ */
 void bootstrap(T_Context* ctx)
 {
-    add_core_word(ctx, "CREATE", eOP_CREATE);
-    add_core_word(ctx, "ALLOT",  eOP_ALLOT);
-    add_core_word(ctx, "STATE",  eOP_STATE);
-    add_core_word(ctx, ":",      eOP_COLON);
-    add_core_word(ctx, ";",      eOP_SEMICOLON);
-    add_core_word(ctx, ",",      eOP_COMMA);
-    add_core_word(ctx, ".",      eOP_DOT);
+    add_core_word(ctx, "CREATE",     eOP_CREATE,    0);
+    add_core_word(ctx, "ALLOT",      eOP_ALLOT,     0);
+    add_core_word(ctx, "STATE",      eOP_STATE,     0);
+    add_core_word(ctx, ":",          eOP_COLON,     0);
+    add_core_word(ctx, ",",          eOP_COMMA,     0);
+    add_core_word(ctx, ".",          eOP_DOT,       0);
+    add_core_word(ctx, "@",          eOP_AT,        0);
+    add_core_word(ctx, "C@",         eOP_C_AT,      0);
+    add_core_word(ctx, "EMIT",       eOP_EMIT,      0);
+    add_core_word(ctx, "PASS",       eOP_PASS,      0);
+    add_core_word(ctx, "QUERY",      eOP_QUERY,     0);
+    add_core_word(ctx, "IMMEDIATE",  eOP_IMMEDIATE, 0);
+    add_core_word(ctx, "?IMMEDIATE", eOP_QIMMEDIATE, 0);
 
+    add_core_word(ctx, ";",      eOP_SEMICOLON, EF_IMMEDIATE | EF_COMPILE_ONLY);
+    add_core_word(ctx, "BEGIN",  eOP_BEGIN,     EF_IMMEDIATE | EF_COMPILE_ONLY);
+    add_core_word(ctx, "AGAIN",  eOP_AGAIN,     EF_IMMEDIATE | EF_COMPILE_ONLY);
+    add_core_word(ctx, "IF",     eOP_IF,        EF_IMMEDIATE | EF_COMPILE_ONLY);
+    add_core_word(ctx, "THEN",   eOP_THEN,      EF_IMMEDIATE | EF_COMPILE_ONLY);
+    add_core_word(ctx, "WHILE",  eOP_WHILE,     EF_IMMEDIATE | EF_COMPILE_ONLY);
+    add_core_word(ctx, "REPEAT", eOP_REPEAT,    EF_IMMEDIATE | EF_COMPILE_ONLY);
+    add_core_word(ctx, "LITERAL", eOP_LITERAL,  EF_IMMEDIATE | EF_COMPILE_ONLY);
+
+    /* Hidden, have run time behaviour only, used by compiling words
+     * and immediate words. */
+    add_core_word(ctx, "PUSH",     eOP_PUSH,     EF_HIDDEN);
+    add_core_word(ctx, "JUMP",     eOP_JUMP,     EF_HIDDEN);
+    add_core_word(ctx, "JUMP_IF",  eOP_JUMP_IF,  EF_HIDDEN);
+
+    /* We now have enough words to compile a new version
+     * of INTERPRET
+     */
     paste_code(ctx, ": test ; CREATE FOO 2 ALLOT");
-    mini_interpret(ctx, 5);
-    paste_code(ctx, "FOO .");
-    mini_interpret(ctx, 2);
+    mini_interpret(ctx);
+    // paste_code(ctx, ": CR 13 EMIT ;  'O' EMIT 'K' EMIT CR");
+
+    paste_code(ctx, interpret_code);
+    mini_interpret(ctx);
+
+    {
+        paste_code(ctx, "INTERPRET");
+        instr_find(ctx, 0);
+        address_type word = pop(ctx->dataspace, &(ctx->data_stack));
+        T_DictHeader* header = (T_DictHeader*)(&(ctx->dataspace[word]));
+        uint32_t n = header->name.count;
+        address_type parameter_field = word;
+        parameter_field += n + DE_SIZE_MIN;
+        parameter_field = align(parameter_field);
+        ctx->ip = parameter_field;
+        {
+            instruction_type opcode;
+            while(ctx->run) {
+                /* Fetch instruction (dictionary address of the word to be executed) */
+                word = fetch16ubits(ctx->dataspace, ctx->ip);
+                header = (T_DictHeader*)(&(ctx->dataspace[word]));
+                /* The word itself will fetch any additional data needed and
+                 * advance the instruction pointer and return the new pointer */
+                opcode = header->code_field;
+                ctx->ip = instruction_table[opcode](ctx, word);
+            }
+        }
+    }
 }
 
 /* --------------------------------------------------------------------*/
@@ -909,7 +1418,7 @@ int main(int argc, char** argv)
 
     if (actions == 0) {
         bootstrap(&context);
-        info(&context);
+    //    info(&context);
     } else {
         if (actions & DO_INFO) { info(&context); }
     }

@@ -1,0 +1,22 @@
+: INTERPRET
+BEGIN
+  FIND
+  WORDBUFFER C@ 0 =
+  IF
+    CR 'O' 'K' EMIT EMIT CR QUERY
+  ELSE
+    DUP 0 =
+    IF
+      (NUMBER)
+      STATE @
+      IF LITERAL ELSE PASS THEN
+    ELSE
+      STATE @
+      IF
+        DUP ?IMMEDIATE IF EXECUTE ELSE , END
+      ELSE
+        EXECUTE
+      THEN
+    THEN
+  THEN
+AGAIN ;

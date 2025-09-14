@@ -223,7 +223,11 @@ static void paste_code(T_Context* ctx, char* code)
         input_buffer = FF_LOC_INPUT_BUFFER;
 
         for (i = 0; i < n; ++i) {
-            store8ubits(ctx->dataspace, input_buffer + i, code[i]);
+            if (isspace(code[i])) {
+                store8ubits(ctx->dataspace, input_buffer + i, ' ');
+            } else {
+                store8ubits(ctx->dataspace, input_buffer + i, code[i]);
+            }
         }
         store8ubits(ctx->dataspace, input_buffer + i, 0);
         store16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_INDEX, 0);
@@ -590,10 +594,15 @@ static instruction_pointer_type instr_create_rt(
 static instruction_pointer_type instr_query(
         T_Context* ctx, address_type dict_entry)
 {
+#if 1
     char buffer[81];
     fgets(buffer, 80, stdin);
     paste_code(ctx, buffer);
     return (ctx->ip + 2);
+#else
+    paste_code(ctx, "9999 . . ");
+    return (ctx->ip + 2);
+#endif
 }
 
 /**
@@ -1395,32 +1404,6 @@ static void tst_dump_word_buffer(T_Context* ctx)
 }
 
 /**
- * Inner Interpreter
- *
- * Executes instruction pointed to by context->ip This is what makes FORTH
- * run.
- *
- * This runs until ctx->run becomes false. This is used by BYE to force an
- * exit of the program.
- */
-void inner_interpreter(T_Context* ctx)
-{
-    address_type word;
-    T_DictHeader* header;
-    instruction_type opcode;
-
-    while(ctx->run) {
-        /* Fetch instruction (dictionary address of the word to be executed) */
-        word = ctx->dataspace[ctx->ip];
-        header = (T_DictHeader*)(&(ctx->dataspace[word]));
-        /* The word itself will fetch any additional data needed and
-         * advance the instruction pointer and return the new pointer */
-        opcode = header->code_field;
-        ctx->ip = instruction_table[opcode](ctx, word);
-    }
-}
-
-/**
  * Mini version of INTERPRET that allows to run and compile
  * code. It does not do any error checking.
  * This function is used to compile the full version of INTERPRET
@@ -1554,7 +1537,7 @@ void bootstrap(T_Context* ctx)
      */
     paste_code(ctx, interpret_code);
     mini_interpret(ctx);
-
+    /* Now we can run it in the inner interpreter */
     {
         paste_code(ctx, "INTERPRET");
         instr_find(ctx, 0);
@@ -1562,7 +1545,6 @@ void bootstrap(T_Context* ctx)
 
         push(ctx->dataspace, &(ctx->data_stack), word);
         instr_decompile(ctx, 0);
-//        exit(0);
 
         T_DictHeader* header = (T_DictHeader*)(&(ctx->dataspace[word]));
         uint32_t n = header->name.count;
@@ -1570,10 +1552,11 @@ void bootstrap(T_Context* ctx)
         parameter_field += n + DE_SIZE_MIN;
         parameter_field = align(parameter_field);
         ctx->ip = parameter_field;
-        {
+        {  /* Inner interpreter */
             T_OpCode opcode;
             while(ctx->run) {
-                /* Fetch instruction (dictionary address of the word to be executed) */
+                /* Fetch instruction (dictionary address of the word to be
+                 * executed) */
                 word = fetch16ubits(ctx->dataspace, ctx->ip);
                 header = (T_DictHeader*)(&(ctx->dataspace[word]));
                 /* The word itself will fetch any additional data needed and

@@ -16,7 +16,10 @@
 /* --------------------------------------------------------------------*/
 
 #define MAX_INSTRUCTION_COUNT (256)
+
 function_type instruction_table[MAX_INSTRUCTION_COUNT];
+
+decomp_fp_type decompile_table[MAX_INSTRUCTION_COUNT];
 
 /* --------------------------------------------------------------------*/
 
@@ -283,11 +286,57 @@ static address_type find_via_opcode(T_Context* ctx, T_OpCode opcode)
 /* --------------------------------------------------------------------*/
 
 /**
+ *
+ */
+static address_type decomp_opcode(
+        T_Context* ctx, T_DictHeader* header, address_type ip)
+{
+    printf("%04x ", ip);
+    for (unsigned i = 0; i < header->name.count; ++i) {
+        printf("%c", header->name.s[i]);
+    }
+    printf("\n");
+    return 2;
+}
+
+/**
+ *
+ */
+
+static address_type decomp_push(
+        T_Context* ctx, T_DictHeader* header, address_type ip)
+{
+    printf("%04x ", ip);
+    for (unsigned i = 0; i < header->name.count; ++i) {
+        printf("%c", header->name.s[i]);
+    }
+    cell_type n = fetch16ubits(ctx->dataspace, ip + 2);
+    printf(" %d", n);
+    printf("\n");
+    return 4;
+}
+
+static address_type decomp_jump(
+        T_Context* ctx, T_DictHeader* header, address_type ip)
+{
+    printf("%04x ", ip);
+    for (unsigned i = 0; i < header->name.count; ++i) {
+        printf("%c", header->name.s[i]);
+    }
+    cell_type n = fetch16ubits(ctx->dataspace, ip + 2);
+    printf(" %04x", n);
+    printf("\n");
+    return 4;
+}
+
+
+
+/**
  * BEGIN
  *
  * Compile time behaviour for BEGIN.  Stores the current value
  * of HERE on the control stack.  The data will be later used by
- * one of the loop constructs to create a JUMP...  to this address.
+ * one of the loop constructs to create a JUMPxxx  to this address.
  */
 static instruction_pointer_type instr_begin(
         T_Context* ctx, address_type dict_entry)
@@ -366,6 +415,36 @@ static instruction_pointer_type instr_word(
 }
 
 /**
+ * =
+ *
+ * ( n1 n2 -- f )
+ */
+static instruction_pointer_type instr_equal(
+        T_Context* ctx, address_type dict_entry)
+{
+    cell_type n1 = pop(ctx->dataspace, &(ctx->data_stack));
+    cell_type n2 = pop(ctx->dataspace, &(ctx->data_stack));
+    if (n1 == n2) {
+        push(ctx->dataspace, &(ctx->data_stack), FORTH_TRUE);
+    } else {
+        push(ctx->dataspace, &(ctx->data_stack), FORTH_FALSE);
+    }
+    return (ctx->ip + 2);
+}
+
+/**
+ *
+ */
+static instruction_pointer_type instr_wordbuffer(
+        T_Context* ctx, address_type dict_entry)
+{
+    /* Push address of the copy of the word that was found on stack */
+    push(ctx->dataspace, &(ctx->data_stack), FF_LOC_WORD_BUFFER);
+
+    return (ctx->ip + 2);
+}
+
+/**
  * FIND (  --  addr )
  *
  * Fetch the next word from the input stream and look it up
@@ -420,6 +499,42 @@ static instruction_pointer_type instr_find(
 }
 
 /**
+ * DECOMPILE
+ * ( xt -- )
+ *
+ */
+
+static instruction_pointer_type instr_decompile(
+        T_Context* ctx, address_type dict_entry)
+{
+    T_DictHeader* header;
+
+    cell_type xt = pop(ctx->dataspace, &(ctx->data_stack));
+    header = (T_DictHeader*)(ctx->dataspace + xt);
+
+    /* TODO Should be a function */
+    uint32_t n = header->name.count;
+    address_type parameter_field = xt;
+    parameter_field += n + DE_SIZE_MIN;
+    parameter_field = align(parameter_field);
+    address_type ip = parameter_field;
+
+    T_OpCode opcode;
+    do {
+        address_type word = fetch16ubits(ctx->dataspace, ip);
+        header = (T_DictHeader*)(&(ctx->dataspace[word]));
+        opcode = header->code_field;
+        if (opcode < MAX_INSTRUCTION_COUNT) {
+            ip += decompile_table[opcode](ctx, header, ip);
+        } else {
+            opcode = 0;
+        }
+    } while (!((opcode == 0) || (opcode == eOP_EXIT)));
+
+    return (ctx->ip + 2);
+}
+
+/**
  * CREATE <name>
  *
  * Read the next word in the input stream and use its name
@@ -467,8 +582,7 @@ static instruction_pointer_type instr_create_rt(
 }
 
 /**
- * QUERY read upto 80 characters from the terminal
- *
+ * QUERY read up to 80 characters from the terminal
  *
  * TODO: Also to be used for  EXPECT  which read n characters into
  * a buffer given by an address.
@@ -557,7 +671,7 @@ static instruction_pointer_type instr_illegal(
         T_Context* ctx, address_type dict_entry)
 {
     uint16_t code = fetch16ubits(ctx->dataspace, ctx->ip);
-    printf("Illegal instruction %d at %d\n", code, ctx->ip);
+    printf("Illegal instruction %d at $%04x\n", code, ctx->ip);
     CF_Assert(false);
     return 0;
 }
@@ -595,6 +709,16 @@ static instruction_pointer_type instr_enter(
     parameter_field += n + DE_SIZE_MIN;
     parameter_field = align(parameter_field);
     return parameter_field;
+}
+
+/**
+ * EXIT
+ */
+static instruction_pointer_type instr_exit(
+        T_Context* ctx, address_type dict_entry)
+{
+    address_type address = pop(ctx->dataspace, &(ctx->return_stack));
+    return address;
 }
 
 /**
@@ -656,6 +780,12 @@ static instruction_pointer_type instr_colon(
 static instruction_pointer_type instr_semicolon(
         T_Context* ctx, address_type dict_entry)
 {
+    address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
+    address_type exit_entry = find_via_opcode(ctx, eOP_EXIT);
+    store16ubits(ctx->dataspace, here, exit_entry);
+    here += 2;
+    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+
     store16ubits(ctx->dataspace, FF_LOC_STATE, FF_STATE_INTERPRETING);
     return (ctx->ip + 2);
 }
@@ -726,10 +856,23 @@ static instruction_pointer_type instr_drop(T_Context* ctx, address_type word)
     return (ctx->ip + 2);
 }
 
+
+/**
+ * DUP  (n -- n n )
+ */
+static instruction_pointer_type instr_dup(T_Context* ctx, address_type word)
+{
+    cell_type n = pop(ctx->dataspace, &(ctx->data_stack));
+    push(ctx->dataspace, &(ctx->data_stack), n);
+    push(ctx->dataspace, &(ctx->data_stack), n);
+    return (ctx->ip + 2);
+}
+
+
 /**
  * (NUMBER)  ( addr -- addr 0 | n 1 )
  *
- * Convert the counted string at address addr to the the number it represents.
+ * Convert the counted string at address addr to the number it represents.
  *
  * Support negative numbers,
  * binary numbers;  %1001
@@ -961,11 +1104,15 @@ static instruction_pointer_type instr_qimmediate(
     return (ctx->ip + 2);
 }
 
+/**
+ * TODO
+ */
 static instruction_pointer_type instr_push(
         T_Context* ctx, address_type word)
 {
-    CF_Assert(false); // TODO
-    return (ctx->ip + 2);
+    cell_type n = fetch16ubits(ctx->dataspace, (ctx->ip) + 2);
+    push(ctx->dataspace, &(ctx->data_stack), n);
+    return (ctx->ip + 4);
 }
 
 /**
@@ -1028,15 +1175,15 @@ static instruction_pointer_type instr_then(
         T_Context* ctx, address_type word)
 {
     address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
-    address_type pass_entry = find_via_opcode(ctx, eOP_PASS);
-    store16ubits(ctx->dataspace, here, pass_entry);
+//    address_type pass_entry = find_via_opcode(ctx, eOP_PASS);
+//    store16ubits(ctx->dataspace, here, pass_entry);
 
     /* Fill in the address of the previous ELSE or IF */
     address_type a = pop(ctx->dataspace, &(ctx->control_stack));
     store16ubits(ctx->dataspace, a, here);
 
-    here += 2;
-    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+//    here += 2;
+//    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
 
     return (ctx->ip + 2);
 }
@@ -1051,14 +1198,13 @@ static instruction_pointer_type instr_else(
     address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
     address_type jump_entry = find_via_opcode(ctx, eOP_JUMP);
     store16ubits(ctx->dataspace, here, jump_entry);
-    here += 2;
-
     /* Fill in the address field of the previous by IF generated jump_if_false
      * instruction.
      */
     address_type a = pop(ctx->dataspace, &(ctx->control_stack));
-    store16ubits(ctx->dataspace, a, here);
+    store16ubits(ctx->dataspace, a, here + 4);
 
+    here += 2;
     push(ctx->dataspace, &(ctx->control_stack), here);
 
     here += 2;
@@ -1067,22 +1213,22 @@ static instruction_pointer_type instr_else(
     return (ctx->ip + 2);
 }
 
+/**
+ * AGAIN
+ *
+ * Part of
+ * BEGIN ....  AGAIN
+ */
+
 static instruction_pointer_type instr_again(
         T_Context* ctx, address_type word)
 {
     address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
-    address_type jump_entry = find_via_opcode(ctx, eOP_PASS);
+    address_type jump_entry = find_via_opcode(ctx, eOP_JUMP);
     store16ubits(ctx->dataspace, here, jump_entry);
     here += 2;
-
-    /* Fill in the address field of the previous by
-     * BEGIN instruction.
-     */
     address_type a = pop(ctx->dataspace, &(ctx->control_stack));
-    store16ubits(ctx->dataspace, a, here);
-
-    push(ctx->dataspace, &(ctx->control_stack), here);
-
+    store16ubits(ctx->dataspace, here, a);
     here += 2;
     store16ubits(ctx->dataspace, FF_LOC_HERE, here);
 
@@ -1137,32 +1283,56 @@ static void fill_instruction_table(void)
     }
 
     /* Then overwrite some to make them legal. */
-    instruction_table[eOP_DROP]      = instr_drop;
-    instruction_table[eOP_WORD]      = instr_word;
-    instruction_table[eOP_CREATE]    = instr_create;
-    instruction_table[eOP_CREATE_RT] = instr_create_rt;
-    instruction_table[eOP_EXECUTE]   = instr_execute;
-    instruction_table[eOP_ALLOT]     = instr_allot;
-    instruction_table[eOP_STATE]     = instr_state;
-    instruction_table[eOP_COLON]     = instr_colon;
-    instruction_table[eOP_SEMICOLON] = instr_semicolon;
-    instruction_table[eOP_COMMA]     = instr_comma;
-    instruction_table[eOP_DOT]       = instr_dot;
-    instruction_table[eOP_EMIT]      = instr_emit;
-    instruction_table[eOP_BEGIN]     = instr_begin;
-    instruction_table[eOP_IF]        = instr_if;
-    instruction_table[eOP_THEN]      = instr_then;
-    instruction_table[eOP_JUMP]      = instr_jump;
-    instruction_table[eOP_JUMP_IF]   = instr_jump_if_false;
-    instruction_table[eOP_QUERY]     = instr_query;
-    instruction_table[eOP_IMMEDIATE] = instr_immediate;
+    instruction_table[eOP_DROP]       = instr_drop;
+    instruction_table[eOP_DUP]        = instr_dup;
+    instruction_table[eOP_WORD]       = instr_word;
+    instruction_table[eOP_CREATE]     = instr_create;
+    instruction_table[eOP_CREATE_RT]  = instr_create_rt;
+    instruction_table[eOP_EXECUTE]    = instr_execute;
+    instruction_table[eOP_ALLOT]      = instr_allot;
+    instruction_table[eOP_STATE]      = instr_state;
+    instruction_table[eOP_COLON]      = instr_colon;
+    instruction_table[eOP_SEMICOLON]  = instr_semicolon;
+    instruction_table[eOP_COMMA]      = instr_comma;
+    instruction_table[eOP_DOT]        = instr_dot;
+    instruction_table[eOP_EMIT]       = instr_emit;
+    instruction_table[eOP_BEGIN]      = instr_begin;
+    instruction_table[eOP_IF]         = instr_if;
+    instruction_table[eOP_THEN]       = instr_then;
+    instruction_table[eOP_ELSE]       = instr_else;
+    instruction_table[eOP_JUMP]       = instr_jump;
+    instruction_table[eOP_JUMP_IF]    = instr_jump_if_false;
+    instruction_table[eOP_QUERY]      = instr_query;
+    instruction_table[eOP_IMMEDIATE]  = instr_immediate;
     instruction_table[eOP_QIMMEDIATE] = instr_qimmediate;
-    instruction_table[eOP_AT]        = instr_at;
-    instruction_table[eOP_C_AT]      = instr_c_at;
-    instruction_table[eOP_PASS]      = instr_pass;
-    instruction_table[eOP_PUSH]      = instr_push;
-    instruction_table[eOP_LITERAL]   = instr_literal;
-    instruction_table[eOP_AGAIN]     = instr_again;
+    instruction_table[eOP_AT]         = instr_at;
+    instruction_table[eOP_C_AT]       = instr_c_at;
+    instruction_table[eOP_PASS]       = instr_pass;
+    instruction_table[eOP_PUSH]       = instr_push;
+    instruction_table[eOP_LITERAL]    = instr_literal;
+    instruction_table[eOP_PLITERAL]   = instr_literal;
+    instruction_table[eOP_AGAIN]      = instr_again;
+    instruction_table[eOP_FIND]       = instr_find;
+    instruction_table[eOP_WORDBUFFER] = instr_wordbuffer;
+    instruction_table[eOP_EQUAL]      = instr_equal;
+    instruction_table[eOP_ENTER]      = instr_enter;
+    instruction_table[eOP_EXIT]       = instr_exit;
+    instruction_table[eOP_BNUMBER]    = instr_pnumber;
+
+}
+
+
+static void fill_decompilation_table(void)
+{
+    /* First mark all possible opcodes as illegal */
+    for (int i = 0; i < MAX_INSTRUCTION_COUNT; ++i) {
+        decompile_table[i] = decomp_opcode;
+    }
+
+    /* Then overwrite some to make them legal. */
+    decompile_table[eOP_PUSH] = decomp_push;
+    decompile_table[eOP_JUMP_IF] = decomp_jump;
+    decompile_table[eOP_JUMP] = decomp_jump;
 }
 
 /* --------------------------------------------------------------------*/
@@ -1341,42 +1511,47 @@ T_DictHeader* add_core_word(
  */
 void bootstrap(T_Context* ctx)
 {
-    add_core_word(ctx, "CREATE",     eOP_CREATE,    0);
-    add_core_word(ctx, "ALLOT",      eOP_ALLOT,     0);
-    add_core_word(ctx, "STATE",      eOP_STATE,     0);
-    add_core_word(ctx, ":",          eOP_COLON,     0);
-    add_core_word(ctx, ",",          eOP_COMMA,     0);
-    add_core_word(ctx, ".",          eOP_DOT,       0);
-    add_core_word(ctx, "@",          eOP_AT,        0);
-    add_core_word(ctx, "C@",         eOP_C_AT,      0);
-    add_core_word(ctx, "EMIT",       eOP_EMIT,      0);
-    add_core_word(ctx, "PASS",       eOP_PASS,      0);
-    add_core_word(ctx, "QUERY",      eOP_QUERY,     0);
-    add_core_word(ctx, "IMMEDIATE",  eOP_IMMEDIATE, 0);
+    add_core_word(ctx, "CREATE",     eOP_CREATE,     0);
+    add_core_word(ctx, "ALLOT",      eOP_ALLOT,      0);
+    add_core_word(ctx, "STATE",      eOP_STATE,      0);
+    add_core_word(ctx, ":",          eOP_COLON,      0);
+    add_core_word(ctx, ",",          eOP_COMMA,      0);
+    add_core_word(ctx, ".",          eOP_DOT,        0);
+    add_core_word(ctx, "@",          eOP_AT,         0);
+    add_core_word(ctx, "C@",         eOP_C_AT,       0);
+    add_core_word(ctx, "EMIT",       eOP_EMIT,       0);
+    add_core_word(ctx, "PASS",       eOP_PASS,       0);
+    add_core_word(ctx, "QUERY",      eOP_QUERY,      0);
+    add_core_word(ctx, "IMMEDIATE",  eOP_IMMEDIATE,  0);
     add_core_word(ctx, "?IMMEDIATE", eOP_QIMMEDIATE, 0);
+    add_core_word(ctx, "FIND",       eOP_FIND,       0);
+    add_core_word(ctx, "=",          eOP_EQUAL,      0);
+    add_core_word(ctx, "DUP",        eOP_DUP,        0);
+    add_core_word(ctx, "DROP",       eOP_DROP,       0);
+    add_core_word(ctx, "(NUMBER)",   eOP_BNUMBER,    0);
+    add_core_word(ctx, "EXIT",       eOP_EXIT,       0);
+    add_core_word(ctx, "EXECUTE",    eOP_EXECUTE,    0);
+    add_core_word(ctx, "WORDBUFFER", eOP_WORDBUFFER, 0);
+    add_core_word(ctx, "(LITERAL)",  eOP_PLITERAL,   0);
 
     add_core_word(ctx, ";",      eOP_SEMICOLON, EF_IMMEDIATE | EF_COMPILE_ONLY);
     add_core_word(ctx, "BEGIN",  eOP_BEGIN,     EF_IMMEDIATE | EF_COMPILE_ONLY);
     add_core_word(ctx, "AGAIN",  eOP_AGAIN,     EF_IMMEDIATE | EF_COMPILE_ONLY);
     add_core_word(ctx, "IF",     eOP_IF,        EF_IMMEDIATE | EF_COMPILE_ONLY);
     add_core_word(ctx, "THEN",   eOP_THEN,      EF_IMMEDIATE | EF_COMPILE_ONLY);
+    add_core_word(ctx, "ELSE",   eOP_ELSE,      EF_IMMEDIATE | EF_COMPILE_ONLY);
     add_core_word(ctx, "WHILE",  eOP_WHILE,     EF_IMMEDIATE | EF_COMPILE_ONLY);
     add_core_word(ctx, "REPEAT", eOP_REPEAT,    EF_IMMEDIATE | EF_COMPILE_ONLY);
     add_core_word(ctx, "LITERAL", eOP_LITERAL,  EF_IMMEDIATE | EF_COMPILE_ONLY);
 
-    /* Hidden, have run time behaviour only, used by compiling words
-     * and immediate words. */
+    /* Hidden, have run time behaviour only, used by compiling words and
+     * immediate words. */
     add_core_word(ctx, "PUSH",     eOP_PUSH,     EF_HIDDEN);
     add_core_word(ctx, "JUMP",     eOP_JUMP,     EF_HIDDEN);
     add_core_word(ctx, "JUMP_IF",  eOP_JUMP_IF,  EF_HIDDEN);
 
-    /* We now have enough words to compile a new version
-     * of INTERPRET
+    /* We now have enough words to compile a new version of INTERPRET
      */
-    paste_code(ctx, ": test ; CREATE FOO 2 ALLOT");
-    mini_interpret(ctx);
-    // paste_code(ctx, ": CR 13 EMIT ;  'O' EMIT 'K' EMIT CR");
-
     paste_code(ctx, interpret_code);
     mini_interpret(ctx);
 
@@ -1384,6 +1559,11 @@ void bootstrap(T_Context* ctx)
         paste_code(ctx, "INTERPRET");
         instr_find(ctx, 0);
         address_type word = pop(ctx->dataspace, &(ctx->data_stack));
+
+        push(ctx->dataspace, &(ctx->data_stack), word);
+        instr_decompile(ctx, 0);
+//        exit(0);
+
         T_DictHeader* header = (T_DictHeader*)(&(ctx->dataspace[word]));
         uint32_t n = header->name.count;
         address_type parameter_field = word;
@@ -1391,7 +1571,7 @@ void bootstrap(T_Context* ctx)
         parameter_field = align(parameter_field);
         ctx->ip = parameter_field;
         {
-            instruction_type opcode;
+            T_OpCode opcode;
             while(ctx->run) {
                 /* Fetch instruction (dictionary address of the word to be executed) */
                 word = fetch16ubits(ctx->dataspace, ctx->ip);
@@ -1413,7 +1593,9 @@ int main(int argc, char** argv)
     uint32_t actions = parse_options(argc, argv);
 
     context.dataspace = malloc(FF_MEMORY_SIZE);
+
     fill_instruction_table();
+    fill_decompilation_table();
     ff_reset(&context);
 
     if (actions == 0) {
@@ -1422,6 +1604,8 @@ int main(int argc, char** argv)
     } else {
         if (actions & DO_INFO) { info(&context); }
     }
+
+    free(context.dataspace);
 
     return EXIT_SUCCESS;
 }

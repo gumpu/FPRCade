@@ -1,19 +1,22 @@
+: CR 13 EMIT 10 EMIT ;
+: SP 32 EMIT ;
 : INTERPRET
 BEGIN
   FIND
   WORDBUFFER C@ 0 =
   IF
-    CR 'O' 'K' EMIT EMIT CR QUERY
+    CR 'O' EMIT 'K' EMIT CR QUERY
   ELSE
     DUP 0 =
     IF
       (NUMBER)
       STATE @
-      IF LITERAL ELSE PASS THEN
+      IF (LITERAL) ELSE PASS THEN
     ELSE
       STATE @
       IF
-        DUP ?IMMEDIATE IF EXECUTE ELSE , END
+        DUP ?IMMEDIATE
+        IF EXECUTE ELSE , THEN
       ELSE
         EXECUTE
       THEN

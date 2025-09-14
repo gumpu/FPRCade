@@ -77,60 +77,6 @@ typedef uint16_t word_flag_type;
 /* Maximum length of the name of a word in a dictionary */
 #define FF_MAX_DE_NAME_LENGTH 31
 
-typedef struct Stack {
-    address_type top;
-    address_type where;
-    address_type bottom;
-} T_Stack;
-
-typedef struct DictHeader {
-    /* Pointer to the previous entry in the dictionary If this is ZERO, this
-     * is the final entry */
-    address_type previous;
-    word_flag_type flags;
-    /* Semantics; */
-    instruction_type code_field;  /* Code to execute for the word */
-    address_type does_code;       /* Needed for does> */
-    /* The word itself */
-    T_PackedString name;
-} T_DictHeader;
-
-#define DE_PREVIOUS (0)
-#define DE_FLAGS (2)
-#define DE_CODE_FIELD (4)
-#define DE_DOES_CODE (6)
-#define DE_NAME (8)
-#define DE_SIZE_MIN (10)
-
-typedef struct Context {
-    /* Points to the location in the data space that contains the execution
-     * token of the word being executed */
-    instruction_pointer_type ip;
-    /* Start of data space */
-    address_unit_type* dataspace;
-    /* Indicates whether the inner_interpreter should continue running. Used
-     * for a clean exit and exceptions */
-    bool run;
-
-    /* Head element of the dictionary */
-    address_type dict_head;
-
-    /* Top of the avialable data space */
-    address_type top;
-
-    /* The stacks */
-    T_Stack control_stack;
-    T_Stack data_stack;
-    T_Stack return_stack;
-} T_Context;
-
-typedef instruction_pointer_type (*function_type)(T_Context*, address_type);
-
-extern void CF_RealAssert(bool value, int line);
-/* Normal assert() crashes/confuses gdb
- */
-#define CF_Assert(value) CF_RealAssert(value, __LINE__)
-
 typedef enum {
     eOP_SPACE = 0,
     eOP_CREATE,
@@ -159,6 +105,7 @@ typedef enum {
     eOP_REPEAT,
     eOP_AGAIN,
     eOP_LITERAL,
+    eOP_PLITERAL,
     eOP_EMIT,
     eOP_ABORT,
     eOP_IMMEDIATE,
@@ -168,9 +115,71 @@ typedef enum {
     eOP_AT,
     eOP_C_AT,
     eOP_PASS,
+    eOP_EQUAL,
+    eOP_DUP,
+    eOP_BNUMBER,
+    eOP_WORDBUFFER,
 
     /* This always needs to be the last entry */
     eOP_MAX_OP_CODE
 } T_OpCode;
+
+typedef struct Stack {
+    address_type top;
+    address_type where;
+    address_type bottom;
+} T_Stack;
+
+typedef struct DictHeader {
+    /* Pointer to the previous entry in the dictionary If this is ZERO, this
+     * is the final entry */
+    address_type previous;
+    word_flag_type flags;
+    /* Semantics; This uses 4 bytes and can be optimized by
+     * using a different type */
+    T_OpCode code_field;      /* Code to execute for the word */
+    address_type does_code;   /* Needed for does> */
+    /* The word itself */
+    T_PackedString name;
+} T_DictHeader;
+
+#define DE_PREVIOUS (0)
+#define DE_FLAGS (2)
+#define DE_CODE_FIELD (4)
+#define DE_DOES_CODE (8)
+#define DE_NAME (10)
+#define DE_SIZE_MIN (12)
+
+typedef struct Context {
+    /* Points to the location in the data space that contains the execution
+     * token of the word being executed */
+    instruction_pointer_type ip;
+    /* Start of data space */
+    address_unit_type* dataspace;
+    /* Indicates whether the inner_interpreter should continue running. Used
+     * for a clean exit and exceptions */
+    bool run;
+
+    /* Head element of the dictionary */
+    address_type dict_head;
+
+    /* Top of the avialable data space */
+    address_type top;
+
+    /* The stacks */
+    T_Stack control_stack;
+    T_Stack data_stack;
+    T_Stack return_stack;
+} T_Context;
+
+typedef instruction_pointer_type (*function_type)(T_Context*, address_type);
+
+typedef address_type (*decomp_fp_type)(
+        T_Context*, T_DictHeader* header, address_type);
+
+extern void CF_RealAssert(bool value, int line);
+/* Normal assert() crashes/confuses gdb
+ */
+#define CF_Assert(value) CF_RealAssert(value, __LINE__)
 
 #endif /* HG_FF_H */

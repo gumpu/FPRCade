@@ -40,6 +40,11 @@ void CF_RealAssert(bool value, int line)
 
 /* --------------------------------------------------------------------*/
 
+static cell_type depth(T_Stack* s)
+{
+    return ((s->where - s->bottom)/2);
+}
+
 static cell_type pop(address_unit_type* dataspace, T_Stack* s)
 {
     cell_type v;
@@ -596,27 +601,45 @@ static instruction_pointer_type instr_query(
 {
 #if 1
     char buffer[81];
+    printf("\nDebug: %u %u %u\n",
+            depth(&(ctx->data_stack)),
+            depth(&(ctx->control_stack)),
+            depth(&(ctx->return_stack)));
     fgets(buffer, 80, stdin);
     paste_code(ctx, buffer);
     return (ctx->ip + 2);
 #else
-    paste_code(ctx, "9999 . . ");
+    paste_code(ctx, ": TEST 10 ; TEST ");
     return (ctx->ip + 2);
 #endif
 }
 
 /**
  * EXECUTE   ( xt -- )
+ *
+ * Execute the word indicated by the execution token.
  */
 static instruction_pointer_type instr_execute(
         T_Context* ctx, address_type dict_entry)
 {
+    instruction_pointer_type ip;
     // the xt points to the dictionary entry
     address_type word = pop(ctx->dataspace, &(ctx->data_stack));
     T_DictHeader* header = (T_DictHeader*)(&(ctx->dataspace[word]));
-    instruction_table[header->code_field](ctx, dict_entry);
+    T_OpCode opcode = header->code_field;
 
-    return (ctx->ip + 2);
+    ip = instruction_table[opcode](ctx, word);
+    if (opcode == eOP_ENTER) {
+        /* Enter is special, because we continue (the inner interpreter) at
+         * the word that is entered.
+         */
+        return ip;
+    } else {
+        /* Normal case, code was fully executed, so we continue
+         * at the next instruction.
+         */
+        return (ctx->ip + 2);
+    }
 }
 
 /**
@@ -660,7 +683,9 @@ static instruction_pointer_type instr_jump_if_false(
 }
 
 /**
- * ALLOT  (n -- )  add n bytes to the parameter field of the most
+ * ALLOT  (n -- )
+ *
+ * Add n bytes to the parameter field of the most
  * recently defined word.
  */
 static instruction_pointer_type instr_allot(
@@ -722,6 +747,9 @@ static instruction_pointer_type instr_enter(
 
 /**
  * EXIT
+ *
+ * (r: address -- )
+ *
  */
 static instruction_pointer_type instr_exit(
         T_Context* ctx, address_type dict_entry)
@@ -732,6 +760,8 @@ static instruction_pointer_type instr_exit(
 
 /**
  * ' <name>
+ *
+ * TODO
  *
  */
 
@@ -765,9 +795,12 @@ static instruction_pointer_type instr_colon(
         T_Context* ctx, address_type dict_entry)
 {
     T_PackedString* word_found;
+
     push(ctx->dataspace, &(ctx->data_stack), ' ');
     instr_word(ctx, dict_entry);
-    word_found = (T_PackedString*)(&(ctx->dataspace[FF_LOC_WORD_BUFFER]));
+    address_type word_buffer = pop(ctx->dataspace, &(ctx->data_stack));
+
+    word_found = (T_PackedString*)(&(ctx->dataspace[word_buffer]));
     if (word_found->count > 0) {
         T_DictHeader* header = add_dict_entry(ctx, word_found);
         header->flags |= EF_MACHINE_CODE;
@@ -785,6 +818,7 @@ static instruction_pointer_type instr_colon(
 /**
  * ;
  *
+ * Finish compilation of a colon definition.
  */
 static instruction_pointer_type instr_semicolon(
         T_Context* ctx, address_type dict_entry)
@@ -799,6 +833,9 @@ static instruction_pointer_type instr_semicolon(
     return (ctx->ip + 2);
 }
 
+/**
+ * Convert a digit to the corresponding value based on the given based.
+ */
 static int16_t to_digit(char c, uint16_t base)
 {
     int16_t d;
@@ -838,11 +875,11 @@ static instruction_pointer_type instr_comma(
 
 /**
  * .                                                            "dot"
+ *
  * (n -- )
  *
  * Display  n converted according to BASE in a free field  format with one
  * trailing blank.  Display only a negative sign.
- *
  */
 
 static instruction_pointer_type instr_dot(T_Context* ctx, address_type word)
@@ -857,7 +894,19 @@ static instruction_pointer_type instr_dot(T_Context* ctx, address_type word)
 }
 
 /**
- * DROP  (n -- )
+ * BYE  ( -- )
+ *
+ * Terminate execution of the inner interpreter.
+ */
+static instruction_pointer_type instr_bye(T_Context* ctx, address_type word)
+{
+    ctx->run = false;
+    return (ctx->ip + 2);
+}
+
+
+/**
+ * DROP  ( n -- )
  */
 static instruction_pointer_type instr_drop(T_Context* ctx, address_type word)
 {
@@ -867,7 +916,7 @@ static instruction_pointer_type instr_drop(T_Context* ctx, address_type word)
 
 
 /**
- * DUP  (n -- n n )
+ * DUP  ( n -- n n )
  */
 static instruction_pointer_type instr_dup(T_Context* ctx, address_type word)
 {
@@ -876,7 +925,6 @@ static instruction_pointer_type instr_dup(T_Context* ctx, address_type word)
     push(ctx->dataspace, &(ctx->data_stack), n);
     return (ctx->ip + 2);
 }
-
 
 /**
  * (NUMBER)  ( addr -- addr 0 | n 1 )
@@ -1022,7 +1070,9 @@ static instruction_pointer_type instr_literal(T_Context* ctx, address_type word)
 
 /**
  * EMIT
+ *
  * ( char -- )
+ *
  * Transmit character to the current output device.
  */
 static instruction_pointer_type instr_emit(T_Context* ctx, address_type word)
@@ -1037,6 +1087,8 @@ static instruction_pointer_type instr_emit(T_Context* ctx, address_type word)
  *
  * Clear  the  data and return stacks,  setting  execution  mode.
  * Return control to the terminal.
+ *
+ * TODO
  */
 
 static instruction_pointer_type instr_abort(T_Context* ctx, address_type word)
@@ -1184,15 +1236,10 @@ static instruction_pointer_type instr_then(
         T_Context* ctx, address_type word)
 {
     address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
-//    address_type pass_entry = find_via_opcode(ctx, eOP_PASS);
-//    store16ubits(ctx->dataspace, here, pass_entry);
 
     /* Fill in the address of the previous ELSE or IF */
     address_type a = pop(ctx->dataspace, &(ctx->control_stack));
     store16ubits(ctx->dataspace, a, here);
-
-//    here += 2;
-//    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
 
     return (ctx->ip + 2);
 }
@@ -1327,7 +1374,7 @@ static void fill_instruction_table(void)
     instruction_table[eOP_ENTER]      = instr_enter;
     instruction_table[eOP_EXIT]       = instr_exit;
     instruction_table[eOP_BNUMBER]    = instr_pnumber;
-
+    instruction_table[eOP_BYE]        = instr_bye;
 }
 
 
@@ -1422,6 +1469,11 @@ void mini_interpret(T_Context* ctx)
         address_type word = pop(ctx->dataspace, &(ctx->data_stack));
         uint8_t n = fetch8ubits(ctx->dataspace, FF_LOC_WORD_BUFFER);
 
+        printf("\nDebug a: %u %u %u\n",
+                depth(&(ctx->data_stack)),
+                depth(&(ctx->control_stack)),
+                depth(&(ctx->return_stack)));
+
         if ((word == 0) && (n == 0)) {
             /* Zero can mean, the name of word was not found in the dictionary,
              * OR there were no more words in the input stream.
@@ -1445,8 +1497,16 @@ void mini_interpret(T_Context* ctx)
                 if (state == FF_STATE_COMPILING) {
                     instr_literal(ctx, 0);
                 } else {
+                    CF_Assert(false);
                     /* Leave the number on the data stack */
                 }
+
+                printf("\nDebug n: %u %u %u\n",
+                        depth(&(ctx->data_stack)),
+                        depth(&(ctx->control_stack)),
+                        depth(&(ctx->return_stack)));
+
+
             } else {
                 push(ctx->dataspace, &(ctx->data_stack), word);
 
@@ -1466,8 +1526,21 @@ void mini_interpret(T_Context* ctx)
                 } else {
                     instr_execute(ctx, word);
                 }
+
+                printf("\nDebug w: %u %u %u\n",
+                        depth(&(ctx->data_stack)),
+                        depth(&(ctx->control_stack)),
+                        depth(&(ctx->return_stack)));
+
             }
         }
+
+        printf("\nDebug x: %u %u %u\n",
+                depth(&(ctx->data_stack)),
+                depth(&(ctx->control_stack)),
+                depth(&(ctx->return_stack)));
+
+
     } while (a_word_was_found);
 }
 
@@ -1508,6 +1581,7 @@ void bootstrap(T_Context* ctx)
     add_core_word(ctx, "IMMEDIATE",  eOP_IMMEDIATE,  0);
     add_core_word(ctx, "?IMMEDIATE", eOP_QIMMEDIATE, 0);
     add_core_word(ctx, "FIND",       eOP_FIND,       0);
+    add_core_word(ctx, "BYE",        eOP_BYE,        0);
     add_core_word(ctx, "=",          eOP_EQUAL,      0);
     add_core_word(ctx, "DUP",        eOP_DUP,        0);
     add_core_word(ctx, "DROP",       eOP_DROP,       0);
@@ -1536,15 +1610,31 @@ void bootstrap(T_Context* ctx)
     /* We now have enough words to compile a new version of INTERPRET
      */
     paste_code(ctx, interpret_code);
+    printf("\nDebug 0: %u %u %u\n",
+            depth(&(ctx->data_stack)),
+            depth(&(ctx->control_stack)),
+            depth(&(ctx->return_stack)));
+
     mini_interpret(ctx);
+    printf("\nDebug 1: %u %u %u\n",
+            depth(&(ctx->data_stack)),
+            depth(&(ctx->control_stack)),
+            depth(&(ctx->return_stack)));
+
     /* Now we can run it in the inner interpreter */
     {
         paste_code(ctx, "INTERPRET");
         instr_find(ctx, 0);
         address_type word = pop(ctx->dataspace, &(ctx->data_stack));
-
+#if 0
         push(ctx->dataspace, &(ctx->data_stack), word);
         instr_decompile(ctx, 0);
+#endif
+        printf("Starting ----- \n");
+        printf("\nDebug: %u %u %u\n",
+                depth(&(ctx->data_stack)),
+                depth(&(ctx->control_stack)),
+                depth(&(ctx->return_stack)));
 
         T_DictHeader* header = (T_DictHeader*)(&(ctx->dataspace[word]));
         uint32_t n = header->name.count;

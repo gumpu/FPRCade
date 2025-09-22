@@ -70,7 +70,7 @@ typedef uint16_t word_flag_type;
 #define EF_COLON_DEF_ONLY   (1 << 2)
 #define EF_COMPILE_ONLY     (1 << 3)
 #define EF_HIDDEN           (1 << 4)
-
+#define EF_DIRTY            (1 << 5)    /* Word is being compiled */
 #define FORTH_FALSE (0x0000)
 #define FORTH_TRUE  (0x0001)
 
@@ -119,7 +119,8 @@ typedef enum {
     eOP_DUP,
     eOP_BNUMBER,
     eOP_WORDBUFFER,
-
+    eOP_BASE,
+    eOP_STORE,
     /* This always needs to be the last entry */
     eOP_MAX_OP_CODE
 } T_OpCode;
@@ -159,19 +160,21 @@ typedef struct Context {
     /* Indicates whether the inner_interpreter should continue running. Used
      * for a clean exit and exceptions */
     bool run;
-
     /* Head element of the dictionary */
     address_type dict_head;
-
     /* Top of the avialable data space */
     address_type top;
-
+    /* Address used by ABORT to return to normal
+     * terminal operation.
+     */
+    address_type recover;
     /* The stacks */
     T_Stack control_stack;
     T_Stack data_stack;
     T_Stack return_stack;
 } T_Context;
 
+// TODO  function_type is a too generic name
 typedef instruction_pointer_type (*function_type)(T_Context*, address_type);
 
 typedef address_type (*decomp_fp_type)(

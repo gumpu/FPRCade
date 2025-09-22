@@ -17,7 +17,7 @@ BEGIN
         IF (LITERAL) ELSE PASS THEN
       ELSE
         DROP
-        '?' EMIT
+        '?' EMIT ABORT
       THEN
     ELSE
       STATE @

@@ -1,6 +1,7 @@
 /** vi: spell spl=en
  *
  * This is an implementation of FORTH based on the FORTH-79 standard.
+ *
  */
 
 #include <stdlib.h>
@@ -40,18 +41,66 @@ void CF_RealAssert(bool value, int line)
 
 /* --------------------------------------------------------------------*/
 
+/**
+ * Given an address make it 16 bit aligned by adding one if necessary.
+ */
+static address_type align(address_type address)
+{
+    address_type n = address;
+    n += (n & 0x1);
+    return n;
+}
+
+/**
+ * Compute the address of the first word of the parameter field
+ * of a given dictionary entry.
+ */
+static address_type get_parameter_field(T_Context* ctx, address_type entry)
+{
+    T_DictHeader* header;
+
+    header = (T_DictHeader*)(ctx->dataspace + entry);
+    address_type parameter_field = entry;
+    parameter_field += (header->name.count) + DE_SIZE_MIN;
+    parameter_field = align(parameter_field);
+
+    return parameter_field;
+}
+
+/**
+ * Returns true if the stack is empty and therefore a push() will lead to an
+ * error.
+ */
+static bool will_overflow(T_Stack* s)
+{
+    return ((s->where + FF_CELL_SIZE) == s->top);
+}
+
+/**
+ * Returns true if the stack is empty and therefore a pop() will lead to an
+ * error.
+ */
+static bool is_empty(T_Stack* s)
+{
+    return (s->where == s->bottom);
+}
+
+/**
+ * Return the stack depth of the given stack.
+ */
 static cell_type depth(T_Stack* s)
 {
     return ((s->where - s->bottom)/2);
 }
 
+/**
+ * Pop a value from the given stack.
+ */
 static cell_type pop(address_unit_type* dataspace, T_Stack* s)
 {
     cell_type v;
     if (s->where == s->bottom) {
-        // TODO Handle with exception
         CF_Assert(false);
-        v = 0;
     } else {
         s->where -= FF_CELL_SIZE;
         address_unit_type* cell = dataspace + s->where;
@@ -60,13 +109,15 @@ static cell_type pop(address_unit_type* dataspace, T_Stack* s)
     return v;
 }
 
+/**
+ * Push a value onto the given stack.
+ */
 static void push(address_unit_type* dataspace, T_Stack* s, cell_type v)
 {
     address_unit_type* cell = dataspace + s->where;
     *((cell_type*)(cell)) = v;
     s->where += FF_CELL_SIZE;
     if (s->where == s->top) {
-        // TODO Handle with exception
         CF_Assert(false);
     }
 }
@@ -118,16 +169,6 @@ static void store8ubits(address_unit_type* dataspace, address_type i, uint8_t v)
 static void store8bits(address_unit_type* dataspace, address_type i, int8_t v)
 {
     dataspace[i] = v;
-}
-
-/*
- * Given an address make it 16 bit aligned by adding one if necessary.
- */
-static address_type align(address_type address)
-{
-    address_type n = address;
-    n += (n & 0x1);
-    return n;
 }
 
 /**
@@ -193,6 +234,7 @@ static T_DictHeader* add_dict_entry(T_Context* ctx, T_PackedString* name)
 
     header->previous = current_head;
     header->flags = 0U;
+    header->flags |= EF_DIRTY; /* It is being compiled, but not ready yet */
     header->code_field = 0U;
     header->does_code = 0U;
     /* Copy name */
@@ -242,19 +284,34 @@ static void paste_code(T_Context* ctx, char* code)
     }
 }
 
-static void ff_reset(T_Context* ctx)
+/**
+ * Initialize all the stack, that is set the size and set them
+ * to empty.
+ */
+static void ff_init_all_stacks(T_Context* ctx)
 {
-    ctx->run = true;
-
     address_type where = 0xFFFF - 1;
     where = init_stack(&(ctx->return_stack), where, FF_RETURN_STACK_SIZE);
     where = init_stack(&(ctx->control_stack), where, FF_CONTROL_STACK_SIZE);
     where = init_stack(&(ctx->data_stack), where, FF_DATA_STACK_SIZE);
     ctx->top = where;
+}
+
+/**
+ * Initialize all the stacks and set the system variables
+ * to their default values.
+ */
+static void ff_reset(T_Context* ctx)
+{
+    ctx->run = true;
+
+    ff_init_all_stacks(ctx);
     ctx->dict_head = 0; /* There is dictionary yet */
     store8ubits(ctx->dataspace,  FF_LOC_INPUT_BUFFER, 0);
     store16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_INDEX, 0);
     store16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_COUNT, 0);
+    /* Default base for numbers is 10 */
+    store16ubits(ctx->dataspace, FF_LOC_BASE, 10);
     store16ubits(ctx->dataspace, FF_LOC_HERE, FF_SYSTEM_VARIABLES_END);
     store16ubits(ctx->dataspace, FF_SYSTEM_VARIABLES_END, 0);
 }
@@ -295,7 +352,7 @@ static address_type find_via_opcode(T_Context* ctx, T_OpCode opcode)
 /* --------------------------------------------------------------------*/
 
 /**
- *
+ * Default Decompile function; it shows the words name.
  */
 static address_type decomp_opcode(
         T_Context* ctx, T_DictHeader* header, address_type ip)
@@ -309,7 +366,7 @@ static address_type decomp_opcode(
 }
 
 /**
- *
+ * Decompile PUSH, it has an additional parameter.
  */
 
 static address_type decomp_push(
@@ -325,6 +382,10 @@ static address_type decomp_push(
     return 4;
 }
 
+/**
+ * Decompile JUMP and JUMP_IF, it has an additional parameter.
+ */
+
 static address_type decomp_jump(
         T_Context* ctx, T_DictHeader* header, address_type ip)
 {
@@ -338,6 +399,39 @@ static address_type decomp_jump(
     return 4;
 }
 
+/* --------------------------------------------------------------------*/
+
+/**
+ * ABORT
+ *
+ * Clear the data, control and return stacks,  setting  execution  mode.
+ *
+ * Return control to the terminal. (Restart INTERPRETER).
+ */
+
+static instruction_pointer_type instr_abort(T_Context* ctx, address_type word)
+{
+
+    cell_type state;
+    state = fetch16ubits(ctx->dataspace, FF_LOC_STATE);
+
+    // TODO Clear input buffer
+
+    ff_init_all_stacks(ctx);
+    if (state == FF_STATE_COMPILING) {
+        /* If we were in the middle of compiling, we have to
+         * scrub this word as it will not be complete.
+         */
+        address_type h = ctx->dict_head;
+        T_DictHeader* header;
+        header = (T_DictHeader*)(ctx->dataspace+h);
+        ctx->dict_head = header->previous;
+
+        store16ubits(ctx->dataspace, FF_LOC_STATE, FF_STATE_INTERPRETING);
+    }
+
+    return ctx->recover;
+}
 
 
 /**
@@ -350,9 +444,14 @@ static address_type decomp_jump(
 static instruction_pointer_type instr_begin(
         T_Context* ctx, address_type dict_entry)
 {
-    address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
-    push(ctx->dataspace, &(ctx->control_stack), here);
-    return (ctx->ip + 2);
+    if (will_overflow(&(ctx->control_stack))) {
+        fprintf(stderr, "Control stack is full\n");
+        return instr_abort(ctx, dict_entry);
+    } else {
+        address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
+        push(ctx->dataspace, &(ctx->control_stack), here);
+        return (ctx->ip + 2);
+    }
 }
 
 /**
@@ -369,58 +468,65 @@ static instruction_pointer_type instr_begin(
 static instruction_pointer_type instr_word(
         T_Context* ctx, address_type dict_entry)
 {
-    index_type i;
-    index_type n;
-    address_type word_buffer;
-    address_type input_buffer;
-    char c;
-    char delimitor = (char)pop(ctx->dataspace, &(ctx->data_stack));
-
-    i = fetch16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_INDEX);
-    n = fetch16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_COUNT);
-    word_buffer = FF_LOC_WORD_BUFFER;
-    input_buffer = FF_LOC_INPUT_BUFFER;
-
-    if (i == n) {
-        /* There is no data to parse, create
-         * a zero length string */
-        store8ubits(ctx->dataspace, word_buffer, 0);
+    if (is_empty(&ctx->data_stack)) {
+        fprintf(stderr, "Stack is empty\n");
+        return instr_abort(ctx, dict_entry);
     } else {
-        /* Skip initial delimitor */
-        c = fetch_char(ctx->dataspace, input_buffer + i);
-        for (; (c == delimitor) && (i < n);) {
-            i++;
-            c = fetch_char(ctx->dataspace, input_buffer + i);
-        }
+        index_type i;
+        index_type n;
+        address_type word_buffer;
+        address_type input_buffer;
+        char c;
+        char delimitor = (char)pop(ctx->dataspace, &(ctx->data_stack));
+
+        i = fetch16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_INDEX);
+        n = fetch16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_COUNT);
+        word_buffer = FF_LOC_WORD_BUFFER;
+        input_buffer = FF_LOC_INPUT_BUFFER;
+
         if (i == n) {
+            /* There is no data to parse, create
+             * a zero length string */
             store8ubits(ctx->dataspace, word_buffer, 0);
-            store16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_INDEX, i);
         } else {
-            int8_t l = 0;
-            for (; !(c == delimitor) && (i < n);) {
-                store8ubits(ctx->dataspace, word_buffer + l + 1, c);
-                l++;
+            /* Skip initial delimitor */
+            c = fetch_char(ctx->dataspace, input_buffer + i);
+            for (; (c == delimitor) && (i < n);) {
                 i++;
                 c = fetch_char(ctx->dataspace, input_buffer + i);
             }
             if (i == n) {
-                store8ubits(ctx->dataspace, word_buffer + l + 1, 0);
-            } else if (c == delimitor) {
-                store8ubits(ctx->dataspace, word_buffer + l + 1, c);
+                store8ubits(ctx->dataspace, word_buffer, 0);
+                store16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_INDEX, i);
             } else {
-                /* Should be either one of the two conditions
-                 * in the previous for()
-                 */
-                CF_Assert(false);
+                int8_t l = 0;
+                for (; !(c == delimitor) && (i < n);) {
+                    store8ubits(ctx->dataspace, word_buffer + l + 1, c);
+                    l++;
+                    i++;
+                    c = fetch_char(ctx->dataspace, input_buffer + i);
+                }
+                if (i == n) {
+                    store8ubits(ctx->dataspace, word_buffer + l + 1, 0);
+                } else if (c == delimitor) {
+                    store8ubits(ctx->dataspace, word_buffer + l + 1, c);
+                } else {
+                    /* Should be either one of the two conditions
+                     * in the previous for()
+                     */
+                    CF_Assert(false);
+                }
+                store8ubits(ctx->dataspace, FF_LOC_WORD_BUFFER, l);
+                store16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_INDEX, i);
             }
-            store8ubits(ctx->dataspace, FF_LOC_WORD_BUFFER, l);
-            store16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_INDEX, i);
         }
+        /* Push address of the copy of the word that was found on stack */
+        /* A value was previously popped from the stack, so this
+         * always succeeds.
+         */
+        push(ctx->dataspace, &(ctx->data_stack), FF_LOC_WORD_BUFFER);
+        return (ctx->ip + 2);
     }
-    /* Push address of the copy of the word that was found on stack */
-    push(ctx->dataspace, &(ctx->data_stack), FF_LOC_WORD_BUFFER);
-
-    return (ctx->ip + 2);
 }
 
 /**
@@ -431,26 +537,27 @@ static instruction_pointer_type instr_word(
 static instruction_pointer_type instr_equal(
         T_Context* ctx, address_type dict_entry)
 {
-    cell_type n1 = pop(ctx->dataspace, &(ctx->data_stack));
-    cell_type n2 = pop(ctx->dataspace, &(ctx->data_stack));
-    if (n1 == n2) {
-        push(ctx->dataspace, &(ctx->data_stack), FORTH_TRUE);
+    if (is_empty(&ctx->data_stack)) {
+        fprintf(stderr, "Data stack is empty\n");
+        return instr_abort(ctx, dict_entry);
     } else {
-        push(ctx->dataspace, &(ctx->data_stack), FORTH_FALSE);
+        cell_type n1 = pop(ctx->dataspace, &(ctx->data_stack));
+
+        if (is_empty(&ctx->data_stack)) {
+            fprintf(stderr, "Data stack is empty\n");
+            return instr_abort(ctx, dict_entry);
+        } else {
+            cell_type n2 = pop(ctx->dataspace, &(ctx->data_stack));
+
+            /* We popped 2, so there is room! */
+            if (n1 == n2) {
+                push(ctx->dataspace, &(ctx->data_stack), FORTH_TRUE);
+            } else {
+                push(ctx->dataspace, &(ctx->data_stack), FORTH_FALSE);
+            }
+            return (ctx->ip + 2);
+        }
     }
-    return (ctx->ip + 2);
-}
-
-/**
- *
- */
-static instruction_pointer_type instr_wordbuffer(
-        T_Context* ctx, address_type dict_entry)
-{
-    /* Push address of the copy of the word that was found on stack */
-    push(ctx->dataspace, &(ctx->data_stack), FF_LOC_WORD_BUFFER);
-
-    return (ctx->ip + 2);
 }
 
 /**
@@ -469,42 +576,48 @@ static instruction_pointer_type instr_wordbuffer(
 static instruction_pointer_type instr_find(
         T_Context* ctx, address_type dict_entry)
 {
-    T_DictHeader* header;
-    T_PackedString* word_to_find;
-    address_type h = ctx->dict_head;
 
-    push(ctx->dataspace, &(ctx->data_stack), ' ');
-    instr_word(ctx, 0);
-    address_type word = pop(ctx->dataspace, &(ctx->data_stack));
-    word_to_find = (T_PackedString*)(&(ctx->dataspace[word]));
-
-    address_type word_found;
-    bool found;
-
-    if (word_to_find->count == 0) {
-        /* There was nothing in the input stream */
-        found = false;
+    if (will_overflow(&ctx->data_stack)) {
+        fprintf(stderr, "Data stack is full\n");
+        return instr_abort(ctx, dict_entry);
     } else {
-        do {
-            /* Assume we found the word, until proven otherwise */
-            word_found = h;
-            header = (T_DictHeader*)(ctx->dataspace+h);
+        T_DictHeader* header;
+        T_PackedString* word_to_find;
+        address_type h = ctx->dict_head;
 
-            /* Check if they match */
-            found = compare_packed_string(word_to_find, &(header->name));
+        push(ctx->dataspace, &(ctx->data_stack), ' ');
+        instr_word(ctx, 0);
+        address_type word = pop(ctx->dataspace, &(ctx->data_stack));
+        word_to_find = (T_PackedString*)(&(ctx->dataspace[word]));
 
-            /* Next entry in the dictionary */
-            h = header->previous;
-        } while ((h != 0) && (!found));
+        address_type word_found;
+        bool found;
+
+        if (word_to_find->count == 0) {
+            /* There was nothing in the input stream */
+            found = false;
+        } else {
+            do {
+                /* Assume we found the word, until proven otherwise */
+                word_found = h;
+                header = (T_DictHeader*)(ctx->dataspace+h);
+
+                /* Check if they match */
+                found = compare_packed_string(word_to_find, &(header->name));
+
+                /* Next entry in the dictionary */
+                h = header->previous;
+            } while ((h != 0) && (!found));
+        }
+
+        if (found) {
+            push(ctx->dataspace, &(ctx->data_stack), word_found);
+        } else {
+            push(ctx->dataspace, &(ctx->data_stack), 0);
+        }
+
+        return (ctx->ip + 2);
     }
-
-    if (found) {
-        push(ctx->dataspace, &(ctx->data_stack), word_found);
-    } else {
-        push(ctx->dataspace, &(ctx->data_stack), 0);
-    }
-
-    return (ctx->ip + 2);
 }
 
 /**
@@ -516,31 +629,30 @@ static instruction_pointer_type instr_find(
 static instruction_pointer_type instr_decompile(
         T_Context* ctx, address_type dict_entry)
 {
-    T_DictHeader* header;
+    if (is_empty(&ctx->data_stack)) {
+        fprintf(stderr, "Data stack is empty\n");
+        return instr_abort(ctx, dict_entry);
+    } else {
+        T_DictHeader* header;
 
-    cell_type xt = pop(ctx->dataspace, &(ctx->data_stack));
-    header = (T_DictHeader*)(ctx->dataspace + xt);
+        cell_type xt = pop(ctx->dataspace, &(ctx->data_stack));
+        address_type ip = get_parameter_field(ctx, xt);
+        header = (T_DictHeader*)(ctx->dataspace + xt);
 
-    /* TODO Should be a function */
-    uint32_t n = header->name.count;
-    address_type parameter_field = xt;
-    parameter_field += n + DE_SIZE_MIN;
-    parameter_field = align(parameter_field);
-    address_type ip = parameter_field;
+        T_OpCode opcode;
+        do {
+            address_type word = fetch16ubits(ctx->dataspace, ip);
+            header = (T_DictHeader*)(&(ctx->dataspace[word]));
+            opcode = header->code_field;
+            if (opcode < MAX_INSTRUCTION_COUNT) {
+                ip += decompile_table[opcode](ctx, header, ip);
+            } else {
+                opcode = 0;
+            }
+        } while (!((opcode == 0) || (opcode == eOP_EXIT)));
 
-    T_OpCode opcode;
-    do {
-        address_type word = fetch16ubits(ctx->dataspace, ip);
-        header = (T_DictHeader*)(&(ctx->dataspace[word]));
-        opcode = header->code_field;
-        if (opcode < MAX_INSTRUCTION_COUNT) {
-            ip += decompile_table[opcode](ctx, header, ip);
-        } else {
-            opcode = 0;
-        }
-    } while (!((opcode == 0) || (opcode == eOP_EXIT)));
-
-    return (ctx->ip + 2);
+        return (ctx->ip + 2);
+    }
 }
 
 /**
@@ -553,20 +665,25 @@ static instruction_pointer_type instr_decompile(
 static instruction_pointer_type instr_create(
         T_Context* ctx, address_type dict_entry)
 {
-    T_PackedString* word_found;
-    push(ctx->dataspace, &(ctx->data_stack), ' ');
-    instr_word(ctx, dict_entry);
-    word_found = (T_PackedString*)(&(ctx->dataspace[FF_LOC_WORD_BUFFER]));
-    if (word_found->count > 0) {
-        T_DictHeader* header = add_dict_entry(ctx, word_found);
-        header->flags |= EF_MACHINE_CODE;
-        header->code_field = eOP_CREATE_RT;
+    if (will_overflow(&(ctx->data_stack))) {
+        fprintf(stderr, "Data stack is full\n");
+        return instr_abort(ctx, dict_entry);
     } else {
-        // TODO
-        // Error and abort
+        T_PackedString* word_found;
+        push(ctx->dataspace, &(ctx->data_stack), ' ');
+        instr_word(ctx, dict_entry);
+        word_found = (T_PackedString*)(&(ctx->dataspace[FF_LOC_WORD_BUFFER]));
+        if (word_found->count > 0) {
+            T_DictHeader* header = add_dict_entry(ctx, word_found);
+            header->flags |= EF_MACHINE_CODE;
+            header->code_field = eOP_CREATE_RT;
+            header->flags &= ~(EF_DIRTY);
+            return (ctx->ip + 2);
+        } else {
+            fprintf(stderr, "Could not find a name following CREATE\n");
+            return instr_abort(ctx, dict_entry);
+        }
     }
-
-    return (ctx->ip + 2);
 }
 
 /**
@@ -579,15 +696,14 @@ static instruction_pointer_type instr_create(
 static instruction_pointer_type instr_create_rt(
         T_Context* ctx, address_type dict_entry)
 {
-    // TODO
-    T_DictHeader* header = (T_DictHeader*)(&(ctx->dataspace[dict_entry]));
-    uint32_t n = header->name.count;
-    address_type parameter_field = dict_entry;
-    parameter_field += n + DE_SIZE_MIN;
-    //
-    parameter_field = align(parameter_field);
-    push(ctx->dataspace, &(ctx->data_stack), parameter_field);
-    return (ctx->ip + 2);
+    if (will_overflow(&(ctx->data_stack))) {
+        fprintf(stderr, "Data stack is full\n");
+        return instr_abort(ctx, dict_entry);
+    } else {
+        address_type parameter_field = get_parameter_field(ctx, dict_entry);
+        push(ctx->dataspace, &(ctx->data_stack), parameter_field);
+        return (ctx->ip + 2);
+    }
 }
 
 /**
@@ -622,23 +738,33 @@ static instruction_pointer_type instr_query(
 static instruction_pointer_type instr_execute(
         T_Context* ctx, address_type dict_entry)
 {
-    instruction_pointer_type ip;
-    // the xt points to the dictionary entry
-    address_type word = pop(ctx->dataspace, &(ctx->data_stack));
-    T_DictHeader* header = (T_DictHeader*)(&(ctx->dataspace[word]));
-    T_OpCode opcode = header->code_field;
-
-    ip = instruction_table[opcode](ctx, word);
-    if (opcode == eOP_ENTER) {
-        /* Enter is special, because we continue (the inner interpreter) at
-         * the word that is entered.
-         */
-        return ip;
+    if (is_empty(&ctx->data_stack)) {
+        fprintf(stderr, "Data stack is empty\n");
+        return instr_abort(ctx, dict_entry);
     } else {
-        /* Normal case, code was fully executed, so we continue
-         * at the next instruction.
-         */
-        return (ctx->ip + 2);
+        instruction_pointer_type ip;
+        // the xt points to the dictionary entry
+        address_type word = pop(ctx->dataspace, &(ctx->data_stack));
+        T_DictHeader* header = (T_DictHeader*)(&(ctx->dataspace[word]));
+        T_OpCode opcode = header->code_field;
+
+        ip = instruction_table[opcode](ctx, word);
+        if (ip == ctx->recover) {
+            /* The execution of the instruction failed, so we
+             * need to "recover"
+             */
+            return ip;
+        } else if (opcode == eOP_ENTER) {
+            /* Enter is special, because we continue (the inner interpreter) at
+             * the word that is entered.
+             */
+            return ip;
+        } else {
+            /* Normal case, code was fully executed, so we continue at the
+             * next instruction.
+             */
+            return (ctx->ip + 2);
+        }
     }
 }
 
@@ -668,34 +794,43 @@ static instruction_pointer_type instr_jump(
 static instruction_pointer_type instr_jump_if_false(
         T_Context* ctx, address_type word)
 {
-    address_type address;
+    if (is_empty(&ctx->data_stack)) {
+        fprintf(stderr, "Data stack is empty\n");
+        return instr_abort(ctx, word);
+    } else {
+        address_type address;
 
-    cell_type n = pop(ctx->dataspace, &(ctx->data_stack));
+        cell_type n = pop(ctx->dataspace, &(ctx->data_stack));
 
-    if (n == 0) { /* False */
-        address = fetch16ubits(ctx->dataspace, ctx->ip + 2);
-    } else { /* True */
-        /* Continue at the location after the jump instruction */
-        address = ctx->ip + 4;
+        if (n == 0) { /* False */
+            address = fetch16ubits(ctx->dataspace, ctx->ip + 2);
+        } else { /* True */
+            /* Continue at the location after the jump instruction */
+            address = ctx->ip + 4;
+        }
+
+        return address;
     }
-
-    return address;
 }
 
 /**
  * ALLOT  (n -- )
  *
- * Add n bytes to the parameter field of the most
- * recently defined word.
+ * Add n bytes to the parameter field of the most recently defined word.
  */
 static instruction_pointer_type instr_allot(
         T_Context* ctx, address_type dict_entry)
 {
-    cell_type n = pop(ctx->dataspace, &(ctx->data_stack));
-    address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
-    here = here + n;
-    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
-    return (ctx->ip + 2);
+    if (is_empty(&ctx->data_stack)) {
+        fprintf(stderr, "Data stack is empty\n");
+        return instr_abort(ctx, dict_entry);
+    } else {
+        cell_type n = pop(ctx->dataspace, &(ctx->data_stack));
+        address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
+        here = here + n;
+        store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+        return (ctx->ip + 2);
+    }
 }
 
 /**
@@ -710,19 +845,55 @@ static instruction_pointer_type instr_illegal(
     return 0;
 }
 
+
+static instruction_pointer_type helper_get_variable(
+        T_Context* ctx, address_type dict_entry, address_type variable)
+{
+    if (will_overflow(&(ctx->data_stack))) {
+        fprintf(stderr, "Data stack is full\n");
+        return instr_abort(ctx, dict_entry);
+    } else {
+        push(ctx->dataspace, &(ctx->data_stack), variable);
+        return (ctx->ip + 2);
+    }
+}
+
 /**
- * STATE  ( -- addr )
+ * BASE  ( -- addr )
+ *
+ * Address of the variable containing the base to be used
+ * when reading or printing numbers
+ */
+static instruction_pointer_type instr_base(
+        T_Context* ctx, address_type dict_entry)
+{
+    return helper_get_variable(ctx, dict_entry, FF_LOC_BASE);
+}
+
+/**
+ * STATE       (  -- addr )
  *
  * Address of the variable containing the system state,
- * that is, is compiling or non compiling.
+ * which is either compiling or non compiling.
  *
  * 0 means non-compiling, any other value means compiling.
  */
 static instruction_pointer_type instr_state(
         T_Context* ctx, address_type dict_entry)
 {
-    push(ctx->dataspace, &(ctx->data_stack), FF_LOC_STATE);
-    return (ctx->ip + 2);
+    return helper_get_variable(ctx, dict_entry, FF_LOC_STATE);
+}
+
+/**
+ * WORDBUFFER     (  -- addr )
+ *
+ * Address of the word buffer, points to the counted string
+ * containing the last word that was found.
+ */
+static instruction_pointer_type instr_wordbuffer(
+        T_Context* ctx, address_type dict_entry)
+{
+    return helper_get_variable(ctx, dict_entry, FF_LOC_WORD_BUFFER);
 }
 
 /**
@@ -735,14 +906,14 @@ static instruction_pointer_type instr_state(
 static instruction_pointer_type instr_enter(
         T_Context* ctx, address_type dict_entry)
 {
-    push(ctx->dataspace, &(ctx->return_stack), ctx->ip + 2);
-
-    T_DictHeader* header = (T_DictHeader*)(&(ctx->dataspace[dict_entry]));
-    uint32_t n = header->name.count;
-    address_type parameter_field = dict_entry;
-    parameter_field += n + DE_SIZE_MIN;
-    parameter_field = align(parameter_field);
-    return parameter_field;
+    if (will_overflow(&(ctx->return_stack))) {
+        fprintf(stderr, "Return stack is full\n");
+        return instr_abort(ctx, dict_entry);
+    } else {
+        push(ctx->dataspace, &(ctx->return_stack), ctx->ip + 2);
+        address_type parameter_field = get_parameter_field(ctx, dict_entry);
+        return parameter_field;
+    }
 }
 
 /**
@@ -754,8 +925,13 @@ static instruction_pointer_type instr_enter(
 static instruction_pointer_type instr_exit(
         T_Context* ctx, address_type dict_entry)
 {
-    address_type address = pop(ctx->dataspace, &(ctx->return_stack));
-    return address;
+    if (is_empty(&ctx->return_stack)) {
+        fprintf(stderr, "Return stack is empty\n");
+        return instr_abort(ctx, dict_entry);
+    } else {
+        address_type address = pop(ctx->dataspace, &(ctx->return_stack));
+        return address;
+    }
 }
 
 /**
@@ -790,29 +966,35 @@ static instruction_pointer_type instr_tick(
 /**
  * : <name>
  *
+ * Start a colon definition.
  */
 static instruction_pointer_type instr_colon(
         T_Context* ctx, address_type dict_entry)
 {
     T_PackedString* word_found;
 
-    push(ctx->dataspace, &(ctx->data_stack), ' ');
-    instr_word(ctx, dict_entry);
-    address_type word_buffer = pop(ctx->dataspace, &(ctx->data_stack));
-
-    word_found = (T_PackedString*)(&(ctx->dataspace[word_buffer]));
-    if (word_found->count > 0) {
-        T_DictHeader* header = add_dict_entry(ctx, word_found);
-        header->flags |= EF_MACHINE_CODE;
-        header->code_field = eOP_ENTER;
-        /* Set state to compiling */
-        store16ubits(ctx->dataspace, FF_LOC_STATE, FF_STATE_COMPILING);
+    if (will_overflow(&(ctx->data_stack))) {
+        fprintf(stderr, "Data stack is full\n");
+        return instr_abort(ctx, dict_entry);
     } else {
-        // TODO
-        // Error and abort
-    }
+        push(ctx->dataspace, &(ctx->data_stack), ' ');
+        instr_word(ctx, dict_entry);
+        address_type word_buffer = pop(ctx->dataspace, &(ctx->data_stack));
 
-    return (ctx->ip + 2);
+        word_found = (T_PackedString*)(&(ctx->dataspace[word_buffer]));
+        if (word_found->count > 0) {
+            T_DictHeader* header = add_dict_entry(ctx, word_found);
+            header->flags |= EF_MACHINE_CODE;
+            header->flags |= EF_DIRTY;
+            header->code_field = eOP_ENTER;
+            /* Set state to compiling */
+            store16ubits(ctx->dataspace, FF_LOC_STATE, FF_STATE_COMPILING);
+            return (ctx->ip + 2);
+        } else {
+            fprintf(stderr, "Could not find a name following ':'\n");
+            return instr_abort(ctx, dict_entry);
+        }
+    }
 }
 
 /**
@@ -823,6 +1005,11 @@ static instruction_pointer_type instr_colon(
 static instruction_pointer_type instr_semicolon(
         T_Context* ctx, address_type dict_entry)
 {
+
+    address_type h = ctx->dict_head;
+    T_DictHeader* header;
+    header = (T_DictHeader*)(ctx->dataspace+h);
+
     address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
     address_type exit_entry = find_via_opcode(ctx, eOP_EXIT);
     store16ubits(ctx->dataspace, here, exit_entry);
@@ -830,11 +1017,17 @@ static instruction_pointer_type instr_semicolon(
     store16ubits(ctx->dataspace, FF_LOC_HERE, here);
 
     store16ubits(ctx->dataspace, FF_LOC_STATE, FF_STATE_INTERPRETING);
+
+    /* Mark the dictionary entry as done, and ready to be used. */
+    header->flags &= ~(EF_DIRTY);
+
     return (ctx->ip + 2);
 }
 
 /**
- * Convert a digit to the corresponding value based on the given based.
+ * Convert a digit to the corresponding value based on the given base.
+ *
+ * Returns -1 if the digit was outside the range of the given base.
  */
 static int16_t to_digit(char c, uint16_t base)
 {
@@ -864,11 +1057,16 @@ static int16_t to_digit(char c, uint16_t base)
 static instruction_pointer_type instr_comma(
         T_Context* ctx, address_type word)
 {
-    cell_type number = pop(ctx->dataspace, &(ctx->data_stack));
-    address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
-    store16ubits(ctx->dataspace, here, number);
-    here += FF_CELL_SIZE;
-    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+    if (is_empty(&ctx->data_stack)) {
+        fprintf(stderr, "Data stack is empty\n");
+        return instr_abort(ctx, word);
+    } else {
+        cell_type number = pop(ctx->dataspace, &(ctx->data_stack));
+        address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
+        store16ubits(ctx->dataspace, here, number);
+        here += FF_CELL_SIZE;
+        store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+    }
 
     return (ctx->ip + 2);
 }
@@ -896,7 +1094,7 @@ static instruction_pointer_type instr_dot(T_Context* ctx, address_type word)
 /**
  * BYE  ( -- )
  *
- * Terminate execution of the inner interpreter.
+ * Terminate execution of the inner interpreter to exit FORTH.
  */
 static instruction_pointer_type instr_bye(T_Context* ctx, address_type word)
 {
@@ -910,20 +1108,59 @@ static instruction_pointer_type instr_bye(T_Context* ctx, address_type word)
  */
 static instruction_pointer_type instr_drop(T_Context* ctx, address_type word)
 {
-    (void)(pop(ctx->dataspace, &(ctx->data_stack)));
-    return (ctx->ip + 2);
+    if (is_empty(&ctx->data_stack)) {
+        fprintf(stderr, "Data stack is empty\n");
+        return instr_abort(ctx, word);
+    } else {
+        (void)(pop(ctx->dataspace, &(ctx->data_stack)));
+        return (ctx->ip + 2);
+    }
 }
 
+/**
+ * !     ( n addr --  )                         "store"
+ *
+ * Store n at addr.
+ */
+
+static instruction_pointer_type instr_store(T_Context* ctx, address_type word)
+{
+    if (is_empty(&ctx->data_stack)) {
+        fprintf(stderr, "Data stack is empty\n");
+        return instr_abort(ctx, word);
+    } else {
+        address_type addr = pop(ctx->dataspace, &(ctx->data_stack));
+        if (is_empty(&ctx->data_stack)) {
+            fprintf(stderr, "Data stack is empty\n");
+            return instr_abort(ctx, word);
+        } else {
+            cell_type n = pop(ctx->dataspace, &(ctx->data_stack));
+            store16ubits(ctx->dataspace, addr, n);
+            return (ctx->ip + 2);
+        }
+    }
+}
 
 /**
  * DUP  ( n -- n n )
  */
 static instruction_pointer_type instr_dup(T_Context* ctx, address_type word)
 {
-    cell_type n = pop(ctx->dataspace, &(ctx->data_stack));
-    push(ctx->dataspace, &(ctx->data_stack), n);
-    push(ctx->dataspace, &(ctx->data_stack), n);
-    return (ctx->ip + 2);
+    if (is_empty(&ctx->data_stack)) {
+        fprintf(stderr, "Data stack is empty\n");
+        return instr_abort(ctx, word);
+    } else {
+        cell_type n = pop(ctx->dataspace, &(ctx->data_stack));
+        push(ctx->dataspace, &(ctx->data_stack), n);
+
+        if (will_overflow(&(ctx->data_stack))) {
+            fprintf(stderr, "Data stack is full\n");
+            return instr_abort(ctx, word);
+        } else {
+            push(ctx->dataspace, &(ctx->data_stack), n);
+            return (ctx->ip + 2);
+        }
+    }
 }
 
 /**
@@ -945,70 +1182,90 @@ static instruction_pointer_type instr_dup(T_Context* ctx, address_type word)
  */
 static instruction_pointer_type instr_pnumber(T_Context* ctx, address_type word)
 {
-    cell_type c_addr = pop(ctx->dataspace, &(ctx->data_stack));
-
-    cell_type u = fetch8ubits(ctx->dataspace, c_addr);
-    char* string = (char*) (ctx->dataspace + c_addr + 1);
-
-    bool negative = false;
-    bool wrong = false;
-    uint16_t base;
-    uint32_t result = 0;
-    char first_char = string[0];
-
-    if (first_char == '\'') {
-        if ((u == 3) && (string[2] == '\'')) {
-            result = (int32_t)string[1];
-        } else {
-            wrong = true;
-        }
+    if (is_empty(&ctx->data_stack)) {
+        fprintf(stderr, "Stack is empty\n");
+        return instr_abort(ctx, word);
     } else {
-        uint32_t i = 1;
+        cell_type c_addr = pop(ctx->dataspace, &(ctx->data_stack));
 
-        switch (first_char) {
-            case '%':
-                {
-                    base = 2;
-                    if (u > 1) {
-                        negative = (string[1] == '-');
-                        wrong = (u == 2);
-                    } else {
-                        wrong = true;
+        cell_type u = fetch8ubits(ctx->dataspace, c_addr);
+        char* string = (char*) (ctx->dataspace + c_addr + 1);
+
+        bool negative = false;
+        bool wrong = false;
+        uint16_t base;
+        uint32_t result = 0;
+        char first_char = string[0];
+
+        base = fetch16ubits(ctx->dataspace, FF_LOC_BASE);
+
+        if (first_char == '\'') {
+            if ((u == 3) && (string[2] == '\'')) {
+                result = (int32_t)string[1];
+            } else {
+                wrong = true;
+            }
+        } else {
+            uint32_t i = 1;
+
+            switch (first_char) {
+                case '%':
+                    {
+                        base = 2;
+                        if (u > 1) {
+                            negative = (string[1] == '-');
+                            wrong = (u == 2);
+                        } else {
+                            wrong = true;
+                        }
                     }
-                }
-                break;
-            case '#':
-                {
-                    base = 10;
-                    if (u > 1) {
-                        negative = (string[1] == '-');
-                        wrong = (u == 2);
-                    } else {
-                        wrong = true;
+                    break;
+                case '#':
+                    {
+                        base = 10;
+                        if (u > 1) {
+                            negative = (string[1] == '-');
+                            wrong = (u == 2);
+                        } else {
+                            wrong = true;
+                        }
                     }
-                }
-                break;
-            case '$':
-                {
-                    base = 16;
-                    if (u > 1) {
-                        negative = (string[1] == '-');
-                        wrong = (u == 2);
-                    } else {
-                        wrong = true;
+                    break;
+                case '$':
+                    {
+                        base = 16;
+                        if (u > 1) {
+                            negative = (string[1] == '-');
+                            wrong = (u == 2);
+                        } else {
+                            wrong = true;
+                        }
                     }
-                }
-                break;
-            case '-':
-                negative = true;
-                /* TODO Read from memory (BASE) */
-                base = 10;
-                break;
-            default:
-                /* TODO Read from memory (BASE) */
-                {
-                    base = 10;
-                    int32_t d = to_digit(string[0], base);
+                    break;
+                case '-':
+                    negative = true;
+                    break;
+                default:
+                    {
+                        int32_t d = to_digit(string[0], base);
+                        if (d >= 0) {
+                            result += d;
+                        } else {
+                            wrong = true;
+                            break;
+                        }
+                    }
+            }
+
+            for (; (i < u) && !wrong; i++) {
+                result = result*base;
+                if (string[i] == '-') {
+                    if (negative) {
+                        wrong = true;
+                        break;
+                    }
+                } else {
+                    int32_t d = to_digit(string[i], base);
                     if (d >= 0) {
                         result += d;
                     } else {
@@ -1016,37 +1273,32 @@ static instruction_pointer_type instr_pnumber(T_Context* ctx, address_type word)
                         break;
                     }
                 }
-        }
-
-        for (; (i < u) && !wrong; i++) {
-            result = result*base;
-            if (string[i] == '-') {
-                if (negative) {
-                    wrong = true;
-                    break;
-                }
-            } else {
-                int32_t d = to_digit(string[i], base);
-                if (d >= 0) {
-                    result += d;
-                } else {
-                    wrong = true;
-                    break;
-                }
             }
         }
-    }
 
-    if (wrong) {
-        push(ctx->dataspace, &(ctx->data_stack), c_addr);
-        push(ctx->dataspace, &(ctx->data_stack), FORTH_FALSE);
-    } else {
-        if (negative) { result = 0 - result; }
-        push(ctx->dataspace, &(ctx->data_stack), result);
-        push(ctx->dataspace, &(ctx->data_stack), 1);
-    }
+        if (wrong) {
+            /* We popped a value, so there is room for at least 1 */
+            push(ctx->dataspace, &(ctx->data_stack), c_addr);
+            if (will_overflow(&(ctx->data_stack))) {
+                fprintf(stderr, "Data stack is full\n");
+                return instr_abort(ctx, word);
+            } else {
+                push(ctx->dataspace, &(ctx->data_stack), FORTH_FALSE);
+            }
+        } else {
+            if (negative) { result = 0 - result; }
+            /* We popped a value, so there is room for at least 1 */
+            push(ctx->dataspace, &(ctx->data_stack), result);
+            if (will_overflow(&(ctx->data_stack))) {
+                fprintf(stderr, "Data stack is full\n");
+                return instr_abort(ctx, word);
+            } else {
+                push(ctx->dataspace, &(ctx->data_stack), 1);
+            }
+        }
 
-    return (ctx->ip + 2);
+        return (ctx->ip + 2);
+    }
 }
 
 /**
@@ -1057,15 +1309,20 @@ static instruction_pointer_type instr_pnumber(T_Context* ctx, address_type word)
  */
 static instruction_pointer_type instr_literal(T_Context* ctx, address_type word)
 {
-    cell_type n = pop(ctx->dataspace, &(ctx->data_stack));
-    address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
-    address_type push_entry = find_via_opcode(ctx, eOP_PUSH);
-    store16ubits(ctx->dataspace, here, push_entry);
-    here += 2;
-    store16ubits(ctx->dataspace, here, n);
-    here += 2;
-    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
-    return (ctx->ip + 2);
+    if (is_empty(&(ctx->data_stack))) {
+        fprintf(stderr, "Stack is empty\n");
+        return instr_abort(ctx, word);
+    } else {
+        cell_type n = pop(ctx->dataspace, &(ctx->data_stack));
+        address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
+        address_type push_entry = find_via_opcode(ctx, eOP_PUSH);
+        store16ubits(ctx->dataspace, here, push_entry);
+        here += 2;
+        store16ubits(ctx->dataspace, here, n);
+        here += 2;
+        store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+        return (ctx->ip + 2);
+    }
 }
 
 /**
@@ -1077,42 +1334,42 @@ static instruction_pointer_type instr_literal(T_Context* ctx, address_type word)
  */
 static instruction_pointer_type instr_emit(T_Context* ctx, address_type word)
 {
-    cell_type c = pop(ctx->dataspace, &(ctx->data_stack));
-    printf("%c", (char)c);
-    return (ctx->ip + 2);
-}
-
-/**
- * ABORT
- *
- * Clear  the  data and return stacks,  setting  execution  mode.
- * Return control to the terminal.
- *
- * TODO
- */
-
-static instruction_pointer_type instr_abort(T_Context* ctx, address_type word)
-{
-    // TODO
-    return 0; // TODO
+    if (is_empty(&(ctx->data_stack))) {
+        fprintf(stderr, "Stack is empty\n");
+        return instr_abort(ctx, word);
+    } else {
+        cell_type c = pop(ctx->dataspace, &(ctx->data_stack));
+        printf("%c", (char)c);
+        return (ctx->ip + 2);
+    }
 }
 
 
 static instruction_pointer_type instr_at(
         T_Context* ctx, address_type word)
 {
-    cell_type a = pop(ctx->dataspace, &(ctx->data_stack));
-    cell_type v = fetch16ubits(ctx->dataspace, a);
-    push(ctx->dataspace, &(ctx->data_stack), v);
-    return (ctx->ip + 2);
+    if (will_overflow(&(ctx->data_stack))) {
+        fprintf(stderr, "Stack is empty\n");
+        return instr_abort(ctx, word);
+    } else {
+        cell_type a = pop(ctx->dataspace, &(ctx->data_stack));
+        cell_type v = fetch16ubits(ctx->dataspace, a);
+        push(ctx->dataspace, &(ctx->data_stack), v);
+        return (ctx->ip + 2);
+    }
 }
 
 static instruction_pointer_type instr_c_at(
         T_Context* ctx, address_type word)
 {
-    cell_type a = pop(ctx->dataspace, &(ctx->data_stack));
-    cell_type v = fetch8bits(ctx->dataspace, a);
-    push(ctx->dataspace, &(ctx->data_stack), v);
+    if (is_empty(&(ctx->data_stack))) {
+        fprintf(stderr, "Stack is empty\n");
+        return instr_abort(ctx, word);
+    } else {
+        cell_type a = pop(ctx->dataspace, &(ctx->data_stack));
+        cell_type v = fetch8bits(ctx->dataspace, a);
+        push(ctx->dataspace, &(ctx->data_stack), v);
+    }
     return (ctx->ip + 2);
 }
 
@@ -1153,16 +1410,21 @@ static instruction_pointer_type instr_qimmediate(
 {
     T_DictHeader* header;
 
-    cell_type xt = pop(ctx->dataspace, &(ctx->data_stack));
-    header = (T_DictHeader*)(ctx->dataspace + xt);
-
-    if (header->flags & EF_IMMEDIATE) {
-        push(ctx->dataspace, &(ctx->data_stack), FORTH_TRUE);
+    if (is_empty(&(ctx->data_stack))) {
+        fprintf(stderr, "Stack is empty\n");
+        return instr_abort(ctx, word);
     } else {
-        push(ctx->dataspace, &(ctx->data_stack), FORTH_FALSE);
-    }
+        cell_type xt = pop(ctx->dataspace, &(ctx->data_stack));
+        header = (T_DictHeader*)(ctx->dataspace + xt);
 
-    return (ctx->ip + 2);
+        if (header->flags & EF_IMMEDIATE) {
+            push(ctx->dataspace, &(ctx->data_stack), FORTH_TRUE);
+        } else {
+            push(ctx->dataspace, &(ctx->data_stack), FORTH_FALSE);
+        }
+
+        return (ctx->ip + 2);
+    }
 }
 
 /**
@@ -1171,9 +1433,14 @@ static instruction_pointer_type instr_qimmediate(
 static instruction_pointer_type instr_push(
         T_Context* ctx, address_type word)
 {
-    cell_type n = fetch16ubits(ctx->dataspace, (ctx->ip) + 2);
-    push(ctx->dataspace, &(ctx->data_stack), n);
-    return (ctx->ip + 4);
+    if (will_overflow(&(ctx->data_stack))) {
+        fprintf(stderr, "Data stack is full\n");
+        return instr_abort(ctx, word);
+    } else {
+        cell_type n = fetch16ubits(ctx->dataspace, (ctx->ip) + 2);
+        push(ctx->dataspace, &(ctx->data_stack), n);
+        return (ctx->ip + 4);
+    }
 }
 
 /**
@@ -1204,28 +1471,33 @@ static instruction_pointer_type instr_push(
  */
 
 static instruction_pointer_type instr_if(
-        T_Context* ctx, address_type dict_entry)
+        T_Context* ctx, address_type word)
 {
-    address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
+    if (will_overflow(&(ctx->control_stack))) {
+        fprintf(stderr, "Control stack is full\n");
+        return instr_abort(ctx, word);
+    } else {
+        address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
 
-    /* Add  JUMP_IF_FALSE <address> to the current entry */
-    address_type jump_if_false_entry = find_via_opcode(ctx, eOP_JUMP_IF);
-    store16ubits(ctx->dataspace, here, jump_if_false_entry);
-    here += 2;
-    /* Place holder for the address to jump to, will lead to an illegal
-     * instruction if by mistake it is not filled in. */
-    store16ubits(ctx->dataspace, here, 0U);
+        /* Add  JUMP_IF_FALSE <address> to the current entry */
+        address_type jump_if_false_entry = find_via_opcode(ctx, eOP_JUMP_IF);
+        store16ubits(ctx->dataspace, here, jump_if_false_entry);
+        here += 2;
+        /* Place holder for the address to jump to, will lead to an illegal
+         * instruction if by mistake it is not filled in. */
+        store16ubits(ctx->dataspace, here, 0U);
 
-    /* Push this address on the control stack, so the next ELSE or
-     * THEN can overwrite it with the real value.
-     */
-    push(ctx->dataspace, &(ctx->control_stack), here);
+        /* Push this address on the control stack, so the next ELSE or
+         * THEN can overwrite it with the real value.
+         */
+        push(ctx->dataspace, &(ctx->control_stack), here);
 
-    here += 2;
+        here += 2;
 
-    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+        store16ubits(ctx->dataspace, FF_LOC_HERE, here);
 
-    return (ctx->ip + 2);
+        return (ctx->ip + 2);
+    }
 }
 
 /**
@@ -1237,11 +1509,16 @@ static instruction_pointer_type instr_then(
 {
     address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
 
-    /* Fill in the address of the previous ELSE or IF */
-    address_type a = pop(ctx->dataspace, &(ctx->control_stack));
-    store16ubits(ctx->dataspace, a, here);
+    if (is_empty(&(ctx->control_stack))) {
+        fprintf(stderr, "Stack is empty\n");
+        return instr_abort(ctx, word);
+    } else {
+        /* Fill in the address of the previous ELSE or IF */
+        address_type a = pop(ctx->dataspace, &(ctx->control_stack));
+        store16ubits(ctx->dataspace, a, here);
 
-    return (ctx->ip + 2);
+        return (ctx->ip + 2);
+    }
 }
 
 /**
@@ -1251,22 +1528,29 @@ static instruction_pointer_type instr_then(
 static instruction_pointer_type instr_else(
         T_Context* ctx, address_type word)
 {
-    address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
-    address_type jump_entry = find_via_opcode(ctx, eOP_JUMP);
-    store16ubits(ctx->dataspace, here, jump_entry);
-    /* Fill in the address field of the previous by IF generated jump_if_false
-     * instruction.
-     */
-    address_type a = pop(ctx->dataspace, &(ctx->control_stack));
-    store16ubits(ctx->dataspace, a, here + 4);
 
-    here += 2;
-    push(ctx->dataspace, &(ctx->control_stack), here);
+    if (is_empty(&(ctx->control_stack))) {
+        fprintf(stderr, "Control stack is empty\n");
+        return instr_abort(ctx, word);
+    } else {
+        address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
+        address_type jump_entry = find_via_opcode(ctx, eOP_JUMP);
+        store16ubits(ctx->dataspace, here, jump_entry);
+        /* Fill in the address field of the previous by IF generated jump_if_false
+         * instruction.
+         */
 
-    here += 2;
-    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+        address_type a = pop(ctx->dataspace, &(ctx->control_stack));
+        store16ubits(ctx->dataspace, a, here + 4);
 
-    return (ctx->ip + 2);
+        here += 2;
+        push(ctx->dataspace, &(ctx->control_stack), here);
+
+        here += 2;
+        store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+
+        return (ctx->ip + 2);
+    }
 }
 
 /**
@@ -1279,16 +1563,21 @@ static instruction_pointer_type instr_else(
 static instruction_pointer_type instr_again(
         T_Context* ctx, address_type word)
 {
-    address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
-    address_type jump_entry = find_via_opcode(ctx, eOP_JUMP);
-    store16ubits(ctx->dataspace, here, jump_entry);
-    here += 2;
-    address_type a = pop(ctx->dataspace, &(ctx->control_stack));
-    store16ubits(ctx->dataspace, here, a);
-    here += 2;
-    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+    if (is_empty(&(ctx->control_stack))) {
+        fprintf(stderr, "Control stack is empty\n");
+        return instr_abort(ctx, word);
+    } else {
+        address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
+        address_type jump_entry = find_via_opcode(ctx, eOP_JUMP);
+        store16ubits(ctx->dataspace, here, jump_entry);
+        here += 2;
+        address_type a = pop(ctx->dataspace, &(ctx->control_stack));
+        store16ubits(ctx->dataspace, here, a);
+        here += 2;
+        store16ubits(ctx->dataspace, FF_LOC_HERE, here);
 
-    return (ctx->ip + 2);
+        return (ctx->ip + 2);
+    }
 }
 
 /* --------------------------------------------------------------------*/
@@ -1362,6 +1651,7 @@ static void fill_instruction_table(void)
     instruction_table[eOP_IMMEDIATE]  = instr_immediate;
     instruction_table[eOP_QIMMEDIATE] = instr_qimmediate;
     instruction_table[eOP_AT]         = instr_at;
+    instruction_table[eOP_STORE]      = instr_store;
     instruction_table[eOP_C_AT]       = instr_c_at;
     instruction_table[eOP_PASS]       = instr_pass;
     instruction_table[eOP_PUSH]       = instr_push;
@@ -1375,6 +1665,8 @@ static void fill_instruction_table(void)
     instruction_table[eOP_EXIT]       = instr_exit;
     instruction_table[eOP_BNUMBER]    = instr_pnumber;
     instruction_table[eOP_BYE]        = instr_bye;
+    instruction_table[eOP_ABORT]      = instr_abort;
+    instruction_table[eOP_BASE]       = instr_base;
 }
 
 
@@ -1558,6 +1850,8 @@ T_DictHeader* add_core_word(
     T_DictHeader* header = add_dict_entry(ctx, name);
     header->code_field = op_code;
     header->flags = flags;
+
+
     return header;
 }
 
@@ -1590,6 +1884,7 @@ void bootstrap(T_Context* ctx)
     add_core_word(ctx, "EXECUTE",    eOP_EXECUTE,    0);
     add_core_word(ctx, "WORDBUFFER", eOP_WORDBUFFER, 0);
     add_core_word(ctx, "(LITERAL)",  eOP_PLITERAL,   0);
+    add_core_word(ctx, "ABORT",      eOP_ABORT,      0);
 
     add_core_word(ctx, ";",      eOP_SEMICOLON, EF_IMMEDIATE | EF_COMPILE_ONLY);
     add_core_word(ctx, "BEGIN",  eOP_BEGIN,     EF_IMMEDIATE | EF_COMPILE_ONLY);
@@ -1610,16 +1905,11 @@ void bootstrap(T_Context* ctx)
     /* We now have enough words to compile a new version of INTERPRET
      */
     paste_code(ctx, interpret_code);
-    printf("\nDebug 0: %u %u %u\n",
-            depth(&(ctx->data_stack)),
-            depth(&(ctx->control_stack)),
-            depth(&(ctx->return_stack)));
-
     mini_interpret(ctx);
-    printf("\nDebug 1: %u %u %u\n",
-            depth(&(ctx->data_stack)),
-            depth(&(ctx->control_stack)),
-            depth(&(ctx->return_stack)));
+
+    /* Add additional words */
+    add_core_word(ctx, "BASE",       eOP_BASE,       0);
+    add_core_word(ctx, "!",          eOP_STORE,      0);
 
     /* Now we can run it in the inner interpreter */
     {
@@ -1636,13 +1926,14 @@ void bootstrap(T_Context* ctx)
                 depth(&(ctx->control_stack)),
                 depth(&(ctx->return_stack)));
 
-        T_DictHeader* header = (T_DictHeader*)(&(ctx->dataspace[word]));
-        uint32_t n = header->name.count;
-        address_type parameter_field = word;
-        parameter_field += n + DE_SIZE_MIN;
-        parameter_field = align(parameter_field);
-        ctx->ip = parameter_field;
-        {  /* Inner interpreter */
+        ctx->ip = get_parameter_field(ctx, word);
+        /* Address used by ABORT to return to normal terminal operation.
+         */
+        ctx->recover = ctx->ip;
+
+        /* Inner interpreter */
+        {
+            T_DictHeader* header;
             T_OpCode opcode;
             while(ctx->run) {
                 /* Fetch instruction (dictionary address of the word to be
@@ -1673,7 +1964,7 @@ int main(int argc, char** argv)
 
     if (actions == 0) {
         bootstrap(&context);
-    //    info(&context);
+        // info(&context);
     } else {
         if (actions & DO_INFO) { info(&context); }
     }

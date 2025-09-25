@@ -1,4 +1,5 @@
 #
+# Turn FORTH source code into a C string that can be included in a C program.
 #
 
 import sys
@@ -6,7 +7,9 @@ import re
 import json
 
 def analyse(filename):
-    print("char *interpret_code = ");
+    parts = filename.split(".")
+    code_name = parts[0] + "_code"
+    print(f"char *{code_name} = ");
     with open(filename) as inpf:
         for line in inpf:
             line = line.strip()

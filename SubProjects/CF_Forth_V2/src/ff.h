@@ -121,6 +121,7 @@ typedef enum {
     eOP_WORDBUFFER,
     eOP_BASE,
     eOP_STORE,
+    eOP_PAREN,   /* ( */
     /* This always needs to be the last entry */
     eOP_MAX_OP_CODE
 } T_OpCode;

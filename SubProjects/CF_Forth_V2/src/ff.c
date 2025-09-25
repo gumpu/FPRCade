@@ -12,6 +12,7 @@
 #include <stdbool.h>
 
 #include "interpret.h"
+#include "library.h"
 #include "ff.h"
 
 /* --------------------------------------------------------------------*/
@@ -32,11 +33,7 @@ static void FF_Exit(int line)
 
 void CF_RealAssert(bool value, int line)
 {
-    if (value) {
-        return;
-    } else {
-        FF_Exit(line);
-    }
+    if (value) { return; } else { FF_Exit(line); }
 }
 
 /* --------------------------------------------------------------------*/
@@ -153,7 +150,8 @@ static cell_type fetch16ubits(address_unit_type* dataspace, address_type i)
     return v;
 }
 
-static void store16ubits(address_unit_type* dataspace, address_type i, cell_type v)
+static void store16ubits(
+        address_unit_type* dataspace, address_type i, cell_type v)
 {
     /* Little Endian */
     dataspace[i] = v & 0xFF;
@@ -187,9 +185,7 @@ static address_type init_stack(T_Stack* s, address_type where, uint16_t size)
     return where;
 }
 
-static bool compare_packed_string(
-        T_PackedString* ps1,
-        T_PackedString* ps2)
+static bool compare_packed_string(T_PackedString* ps1, T_PackedString* ps2)
 {
     bool result;
     if (ps1->count != ps2->count) {
@@ -204,9 +200,7 @@ static bool compare_packed_string(
     return result;
 }
 
-static void copy_packed_string(
-        T_PackedString* source,
-        T_PackedString* dest)
+static void copy_packed_string(T_PackedString* source, T_PackedString* dest)
 {
     dest->count = source->count;
     memcpy(dest->s, source->s, dest->count);
@@ -217,7 +211,6 @@ static void clone_c_string(char* string, T_PackedString* dest)
     dest->count = strlen(string);
     memcpy(dest->s, string, dest->count);
 }
-
 
 /**
  * Add a new entry to the dictionary with the name given.
@@ -368,7 +361,6 @@ static address_type decomp_opcode(
 /**
  * Decompile PUSH, it has an additional parameter.
  */
-
 static address_type decomp_push(
         T_Context* ctx, T_DictHeader* header, address_type ip)
 {
@@ -385,7 +377,6 @@ static address_type decomp_push(
 /**
  * Decompile JUMP and JUMP_IF, it has an additional parameter.
  */
-
 static address_type decomp_jump(
         T_Context* ctx, T_DictHeader* header, address_type ip)
 {
@@ -408,14 +399,15 @@ static address_type decomp_jump(
  *
  * Return control to the terminal. (Restart INTERPRETER).
  */
-
 static instruction_pointer_type instr_abort(T_Context* ctx, address_type word)
 {
-
     cell_type state;
     state = fetch16ubits(ctx->dataspace, FF_LOC_STATE);
 
-    // TODO Clear input buffer
+    /* Clear input buffer */
+    store8ubits(ctx->dataspace,  FF_LOC_INPUT_BUFFER, 0);
+    store16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_INDEX, 0);
+    store16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_COUNT, 0);
 
     ff_init_all_stacks(ctx);
     if (state == FF_STATE_COMPILING) {
@@ -433,9 +425,49 @@ static instruction_pointer_type instr_abort(T_Context* ctx, address_type word)
     return ctx->recover;
 }
 
+/*
+ * (            (  --   )                         I              "paren"
+ *
+ * Used in the form:
+ *
+ * ( ccc)
+ *
+ * Accept  and ignore comment characters from the  input  stream, until the
+ * next  right parenthesis.   As  a  word,  the  left parenthesis must be
+ * followed by one blank.   It may freely be used while executing or compiling.
+ * An error condition exists if the input stream is exhausted before the right
+ * parenthesis.
+ *
+ */
+static instruction_pointer_type instr_paren(T_Context* ctx, address_type word)
+{
+    index_type i = fetch16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_INDEX);
+    unsigned n = fetch16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_COUNT);
+    address_type input_buffer = FF_LOC_INPUT_BUFFER;
+
+    CF_Assert(i <= n);
+
+    if (i == n) {
+        fprintf(stderr, "'(' without a ')'\n");
+        return instr_abort(ctx, word);
+    } else {
+        char c = fetch_char(ctx->dataspace, input_buffer + i);
+        for (; (c != ')') && (i < n); ++i) {
+            c = fetch_char(ctx->dataspace, input_buffer + i);
+        }
+        if (c != ')') {
+            fprintf(stderr, "'(' without a ')'\n");
+            return instr_abort(ctx, word);
+        } else {
+            store16ubits(ctx->dataspace, FF_LOC_INPUT_BUFFER_INDEX, i);
+        }
+    }
+    return (ctx->ip + 2);
+}
+
 
 /**
- * BEGIN
+ * BEGIN   ( -- c: n )
  *
  * Compile time behaviour for BEGIN.  Stores the current value
  * of HERE on the control stack.  The data will be later used by
@@ -576,7 +608,6 @@ static instruction_pointer_type instr_equal(
 static instruction_pointer_type instr_find(
         T_Context* ctx, address_type dict_entry)
 {
-
     if (will_overflow(&ctx->data_stack)) {
         fprintf(stderr, "Data stack is full\n");
         return instr_abort(ctx, dict_entry);
@@ -790,7 +821,6 @@ static instruction_pointer_type instr_jump(
  *
  * Needed to implement loops and branches.
  */
-
 static instruction_pointer_type instr_jump_if_false(
         T_Context* ctx, address_type word)
 {
@@ -940,7 +970,6 @@ static instruction_pointer_type instr_exit(
  * TODO
  *
  */
-
 static instruction_pointer_type instr_tick(
         T_Context* ctx, address_type dict_entry)
 {
@@ -1079,14 +1108,35 @@ static instruction_pointer_type instr_comma(
  * Display  n converted according to BASE in a free field  format with one
  * trailing blank.  Display only a negative sign.
  */
-
 static instruction_pointer_type instr_dot(T_Context* ctx, address_type word)
 {
     signed_cell_type n =
         (signed_cell_type)(pop(ctx->dataspace, &(ctx->data_stack)));
+    uint16_t base;
 
-    // TODO  Other bases
-    printf("%d ", n);
+    base = fetch16ubits(ctx->dataspace, FF_LOC_BASE);
+
+    if (base == 16) {
+        printf("%x ", n);
+    } else if (base == 10) {
+        printf("%d ", n);
+    } else {
+        char buffer[18];
+        int16_t i = 0;
+        signed_cell_type number = n;
+        char c;
+        do {
+            c = n % base;
+            c += (c < 10) ? '0' : 'A';
+            buffer[i] = c;
+            i++;
+            CF_Assert(i < 17);
+            number = number / base;
+        } while (number > 0);
+        for (; i >= 0; --i) {
+            printf("%c", buffer[i]);
+        }
+    }
 
     return (ctx->ip + 2);
 }
@@ -1101,7 +1151,6 @@ static instruction_pointer_type instr_bye(T_Context* ctx, address_type word)
     ctx->run = false;
     return (ctx->ip + 2);
 }
-
 
 /**
  * DROP  ( n -- )
@@ -1122,7 +1171,6 @@ static instruction_pointer_type instr_drop(T_Context* ctx, address_type word)
  *
  * Store n at addr.
  */
-
 static instruction_pointer_type instr_store(T_Context* ctx, address_type word)
 {
     if (is_empty(&ctx->data_stack)) {
@@ -1667,6 +1715,7 @@ static void fill_instruction_table(void)
     instruction_table[eOP_BYE]        = instr_bye;
     instruction_table[eOP_ABORT]      = instr_abort;
     instruction_table[eOP_BASE]       = instr_base;
+    instruction_table[eOP_PAREN]      = instr_paren;
 }
 
 
@@ -1743,10 +1792,9 @@ static void tst_dump_word_buffer(T_Context* ctx)
 }
 
 /**
- * Mini version of INTERPRET that allows to run and compile
- * code. It does not do any error checking.
- * This function is used to compile the full version of INTERPRET
- * written in FORTH.
+ * Mini version of INTERPRET that allows to run and compile code. It does not
+ * do any error checking.  This function is used to compile the full version
+ * of INTERPRET written in FORTH.
  */
 void mini_interpret(T_Context* ctx)
 {
@@ -1760,11 +1808,6 @@ void mini_interpret(T_Context* ctx)
         instr_find(ctx, 0);
         address_type word = pop(ctx->dataspace, &(ctx->data_stack));
         uint8_t n = fetch8ubits(ctx->dataspace, FF_LOC_WORD_BUFFER);
-
-        printf("\nDebug a: %u %u %u\n",
-                depth(&(ctx->data_stack)),
-                depth(&(ctx->control_stack)),
-                depth(&(ctx->return_stack)));
 
         if ((word == 0) && (n == 0)) {
             /* Zero can mean, the name of word was not found in the dictionary,
@@ -1792,13 +1835,6 @@ void mini_interpret(T_Context* ctx)
                     CF_Assert(false);
                     /* Leave the number on the data stack */
                 }
-
-                printf("\nDebug n: %u %u %u\n",
-                        depth(&(ctx->data_stack)),
-                        depth(&(ctx->control_stack)),
-                        depth(&(ctx->return_stack)));
-
-
             } else {
                 push(ctx->dataspace, &(ctx->data_stack), word);
 
@@ -1818,21 +1854,8 @@ void mini_interpret(T_Context* ctx)
                 } else {
                     instr_execute(ctx, word);
                 }
-
-                printf("\nDebug w: %u %u %u\n",
-                        depth(&(ctx->data_stack)),
-                        depth(&(ctx->control_stack)),
-                        depth(&(ctx->return_stack)));
-
             }
         }
-
-        printf("\nDebug x: %u %u %u\n",
-                depth(&(ctx->data_stack)),
-                depth(&(ctx->control_stack)),
-                depth(&(ctx->return_stack)));
-
-
     } while (a_word_was_found);
 }
 
@@ -1895,6 +1918,7 @@ void bootstrap(T_Context* ctx)
     add_core_word(ctx, "WHILE",  eOP_WHILE,     EF_IMMEDIATE | EF_COMPILE_ONLY);
     add_core_word(ctx, "REPEAT", eOP_REPEAT,    EF_IMMEDIATE | EF_COMPILE_ONLY);
     add_core_word(ctx, "LITERAL", eOP_LITERAL,  EF_IMMEDIATE | EF_COMPILE_ONLY);
+    add_core_word(ctx, "(",      eOP_PAREN,     EF_IMMEDIATE);
 
     /* Hidden, have run time behaviour only, used by compiling words and
      * immediate words. */
@@ -1919,18 +1943,23 @@ void bootstrap(T_Context* ctx)
 #if 0
         push(ctx->dataspace, &(ctx->data_stack), word);
         instr_decompile(ctx, 0);
-#endif
+
         printf("Starting ----- \n");
         printf("\nDebug: %u %u %u\n",
                 depth(&(ctx->data_stack)),
                 depth(&(ctx->control_stack)),
                 depth(&(ctx->return_stack)));
+#endif
 
         ctx->ip = get_parameter_field(ctx, word);
         /* Address used by ABORT to return to normal terminal operation.
          */
         ctx->recover = ctx->ip;
 
+        /* Paste the library code into input buffer, it will
+         * get compiled by the new INTERPRET.
+         */
+        paste_code(ctx, library_code);
         /* Inner interpreter */
         {
             T_DictHeader* header;

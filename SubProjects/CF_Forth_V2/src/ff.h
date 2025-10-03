@@ -17,20 +17,22 @@ typedef struct {
 
 /* Location in the dataspace of the various default variables  */
 /* Location 0x0000 is reserved */
+#define FF_LOC_ZERO               (0)
 #define FF_LOC_HERE               (1*FF_CELL_SIZE)   /* HERE */
 #define FF_LOC_STATE              (2*FF_CELL_SIZE)   /* STATE */
 #define FF_LOC_BASE               (3*FF_CELL_SIZE)   /* BASE */
 #define FF_LOC_INPUT_BUFFER_INDEX (4*FF_CELL_SIZE)   /* >IN */
 #define FF_LOC_INPUT_BUFFER_COUNT (5*FF_CELL_SIZE)
-#define FF_LOC_WORD_BUFFER        (6*FF_CELL_SIZE)
+#define FF_LOC_DOES_CODE          (6*FF_CELL_SIZE)
+#define FF_LOC_WORD_BUFFER        (7*FF_CELL_SIZE)
 #define FF_INPUT_BUFFER_SIZE      (1024)
 #define FF_WORD_BUFFER_SIZE       (1+127)
 #define FF_LOC_INPUT_BUFFER       (FF_LOC_WORD_BUFFER+FF_WORD_BUFFER_SIZE)
 #define FF_SYSTEM_VARIABLES_END   (FF_LOC_INPUT_BUFFER+FF_INPUT_BUFFER_SIZE)
 
-#define FF_RETURN_STACK_SIZE (24)
-#define FF_CONTROL_STACK_SIZE (20)
-#define FF_DATA_STACK_SIZE (32)
+#define FF_RETURN_STACK_SIZE    (24)
+#define FF_CONTROL_STACK_SIZE   (20)
+#define FF_DATA_STACK_SIZE      (32)
 
 #define FF_STATE_COMPILING (1)
 #define FF_STATE_INTERPRETING (0)
@@ -40,7 +42,8 @@ typedef uint16_t cell_type;
 typedef int16_t  signed_cell_type;
 typedef uint16_t index_type;
 
-/* There can be 65535 instructions.  Each instruction is a number that is an
+/**
+ * There can be 65535 instructions.  Each instruction is a number that is an
  * index into a table of function pointers.  The function it points to is the
  * function that implements the instructions behaviour.
  */
@@ -51,7 +54,8 @@ typedef unsigned_cell_type  instruction_pointer_type;
 typedef unsigned char       address_unit_type;
 typedef unsigned_cell_type  address_type;
 
-/* A token that indicates which dictionary entry needs to be executed or
+/**
+ * A token that indicates which dictionary entry needs to be executed or
  * compiled. It points to the start of the entry
  */
 typedef cell_type execution_token_type;
@@ -80,7 +84,7 @@ typedef uint16_t word_flag_type;
 typedef enum {
     eOP_SPACE = 0,
     eOP_CREATE,
-    eOP_CREATE_RT,
+    eOP_CREATE_ENTER,
     eOP_WORD,
     eOP_ALLOT,
     eOP_ENTER,
@@ -122,6 +126,11 @@ typedef enum {
     eOP_BASE,
     eOP_STORE,
     eOP_PAREN,   /* ( */
+    eOP_DECOMPILE,
+    eOP_ADD,
+    eOP_DOES,
+    eOP_DOES_ENTER,
+    eOP_DOES_RT,
     /* This always needs to be the last entry */
     eOP_MAX_OP_CODE
 } T_OpCode;

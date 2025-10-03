@@ -1,7 +1,3 @@
-( vi: ft=forth
-)
-: SP 32 EMIT ;
-
 : INTERPRET
 BEGIN
   FIND

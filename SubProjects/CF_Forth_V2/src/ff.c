@@ -1,7 +1,6 @@
 /** vi: spell spl=en
  *
  * This is an implementation of FORTH based on the FORTH-79 standard.
- *
  */
 
 #include <stdlib.h>
@@ -185,13 +184,16 @@ static address_type init_stack(T_Stack* s, address_type where, uint16_t size)
     return where;
 }
 
+/**
+ * Compare two packed strings, ignoring case.
+ */
 static bool compare_packed_string(T_PackedString* ps1, T_PackedString* ps2)
 {
     bool result;
     if (ps1->count != ps2->count) {
         result = false;
     } else {
-        if (memcmp(ps1->s, ps2->s, ps1->count) == 0) {
+        if (strncasecmp(ps1->s, ps2->s, ps1->count) == 0) {
             result = true;
         } else {
             result = false;
@@ -425,6 +427,20 @@ static instruction_pointer_type instr_abort(T_Context* ctx, address_type word)
     return ctx->recover;
 }
 
+/**
+ * DROP  ( n -- )
+ */
+static instruction_pointer_type instr_drop(T_Context* ctx, address_type word)
+{
+    if (is_empty(&ctx->data_stack)) {
+        fprintf(stderr, "Data stack is empty\n");
+        return instr_abort(ctx, word);
+    } else {
+        (void)(pop(ctx->dataspace, &(ctx->data_stack)));
+        return (ctx->ip + 2);
+    }
+}
+
 /*
  * (            (  --   )                         I              "paren"
  *
@@ -465,6 +481,110 @@ static instruction_pointer_type instr_paren(T_Context* ctx, address_type word)
     return (ctx->ip + 2);
 }
 
+/**
+ * DOES>                                             Does Run time code
+ *
+ * This executes when a new word is being defined by a defining word that used
+ * DOES> as part of its definition.
+ */
+static instruction_pointer_type instr_does_rt(
+        T_Context* ctx, address_type dict_entry)
+{
+    T_DictHeader* header;
+    address_type h = ctx->dict_head;
+
+    header = (T_DictHeader*)(ctx->dataspace+h);
+    /* Change the entry from eOP_CREATE_ENTER to eOP_DOES_ENTER */
+    CF_Assert(header->code_field == eOP_CREATE_ENTER);
+    // TODO Should report an error
+    header->code_field = eOP_DOES_ENTER;
+    /* In a defining word the code looks like
+     * eOP_DOES_CT                  <- ctx->ip
+     * eOP_EXIT
+     * <code defined by DOES>
+     *
+     * So we can derive the location of the does code from ctx->ip
+     */
+    header->does_code = ctx->ip+4;
+    return (ctx->ip + 2);
+}
+
+/**
+ * DOES>
+ *
+ * Used when creating a new defining word.
+ */
+static instruction_pointer_type instr_does(
+        T_Context* ctx, address_type dict_entry)
+{
+    address_type h = ctx->dict_head;
+    T_DictHeader* header;
+    header = (T_DictHeader*)(ctx->dataspace+h);
+
+    /* Finish the code for the current word, and start the code
+     * for the DOES> part that will be used by words created
+     * by this word.
+     */
+    address_type here = fetch16ubits(ctx->dataspace, FF_LOC_HERE);
+    /*
+     * This will copy the location of the code defined by DOES> into the
+     * newly created word. And set the newly created word to execute
+     * this code. (eOP_DOES_RT)
+     */
+    address_type does_rt_entry = find_via_opcode(ctx, eOP_DOES_RT);
+    store16ubits(ctx->dataspace, here, does_rt_entry);
+    here += 2;
+    /* NOTE:  eOP_DOES_RT relies on that it is followed by eOP_EXIT
+     * and then the "does" code.
+     * When adding new code here, also update eOP_DOES_RT.
+     */
+    address_type exit_entry = find_via_opcode(ctx, eOP_EXIT);
+    store16ubits(ctx->dataspace, here, exit_entry);
+    here += 2;
+    /* The code stored from this point (here) on will be executed when the
+     * word that was by this word is executed.
+     */
+    store16ubits(ctx->dataspace, FF_LOC_HERE, here);
+    header->does_code = here;
+
+    return (ctx->ip + 2);
+}
+
+/**
+ * Execute the with does DOES> defined code with the parameter field of the
+ * current word on the stack
+ *
+ * Also see
+ * - instr_create_enter
+ * - instr_enter
+ *
+ */
+static instruction_pointer_type instr_does_enter(
+        T_Context* ctx, address_type dict_entry)
+{
+    if (will_overflow(&(ctx->data_stack))) {
+        fprintf(stderr, "Data stack is full\n");
+        return instr_abort(ctx, dict_entry);
+    } else {
+        address_type parameter_field = get_parameter_field(ctx, dict_entry);
+        push(ctx->dataspace, &(ctx->data_stack), parameter_field);
+
+        if (will_overflow(&(ctx->return_stack))) {
+            fprintf(stderr, "Return stack is full\n");
+
+            return instr_abort(ctx, dict_entry);
+        } else {
+            instruction_pointer_type does_code;
+            T_DictHeader* header;
+
+            header = (T_DictHeader*)(ctx->dataspace+dict_entry);
+            push(ctx->dataspace, &(ctx->return_stack), ctx->ip + 2);
+            does_code = header->does_code;
+
+            return does_code;
+        }
+    }
+}
 
 /**
  * BEGIN   ( -- c: n )
@@ -562,6 +682,33 @@ static instruction_pointer_type instr_word(
 }
 
 /**
+ * +                                                 ADD
+ *
+ * ( n1 n2 -- n )
+ */
+static instruction_pointer_type instr_add(
+        T_Context* ctx, address_type dict_entry)
+{
+    if (is_empty(&ctx->data_stack)) {
+        fprintf(stderr, "Data stack is empty\n");
+        return instr_abort(ctx, dict_entry);
+    } else {
+        signed_cell_type n1 = pop(ctx->dataspace, &(ctx->data_stack));
+
+        if (is_empty(&ctx->data_stack)) {
+            fprintf(stderr, "Data stack is empty\n");
+            return instr_abort(ctx, dict_entry);
+        } else {
+            signed_cell_type n2 = pop(ctx->dataspace, &(ctx->data_stack));
+            signed_cell_type r = n1 + n2;
+            /* We popped 2, so there is room! */
+            push(ctx->dataspace, &(ctx->data_stack), r);
+            return (ctx->ip + 2);
+        }
+    }
+}
+
+/**
  * =
  *
  * ( n1 n2 -- f )
@@ -595,15 +742,13 @@ static instruction_pointer_type instr_equal(
 /**
  * FIND (  --  addr )
  *
- * Fetch the next word from the input stream and look it up
- * in the dictionary.
+ * Fetch the next word from the input stream and look it up in the dictionary.
  * Return the dictionary entry address when it was found, and 0 otherwise.
  *
- * To see if the 0 is due to the word not being in the dictionary or
- * due to the input stream being empty the extracted word has to
- * be checked.
+ * To see if the 0 is due to the word not being in the dictionary or due to
+ * the input stream being empty the extracted word has to be checked.
  *
- * The word extracted will be in the word buffer
+ * The word that was extracted is in the word buffer
  */
 static instruction_pointer_type instr_find(
         T_Context* ctx, address_type dict_entry)
@@ -653,10 +798,13 @@ static instruction_pointer_type instr_find(
 
 /**
  * DECOMPILE
- * ( xt -- )
+ *
+ * ( xt --  )
+ *
+ * Show the decompiled version of the code for the Word given by the execution
+ * token xt.
  *
  */
-
 static instruction_pointer_type instr_decompile(
         T_Context* ctx, address_type dict_entry)
 {
@@ -665,22 +813,54 @@ static instruction_pointer_type instr_decompile(
         return instr_abort(ctx, dict_entry);
     } else {
         T_DictHeader* header;
+        address_type ip;
 
         cell_type xt = pop(ctx->dataspace, &(ctx->data_stack));
-        address_type ip = get_parameter_field(ctx, xt);
+
         header = (T_DictHeader*)(ctx->dataspace + xt);
 
-        T_OpCode opcode;
-        do {
-            address_type word = fetch16ubits(ctx->dataspace, ip);
-            header = (T_DictHeader*)(&(ctx->dataspace[word]));
-            opcode = header->code_field;
-            if (opcode < MAX_INSTRUCTION_COUNT) {
-                ip += decompile_table[opcode](ctx, header, ip);
-            } else {
-                opcode = 0;
-            }
-        } while (!((opcode == 0) || (opcode == eOP_EXIT)));
+        word_flag_type flags;
+        printf("name: ");
+        for (int i = 0; i < header->name.count; ++i) {
+            printf("%c", header->name.s[i]);
+        }
+        printf(" (%d characters)", header->name.count);
+        printf("\n");
+
+        printf("  previous: %u\n", header->previous);
+        printf("  code_field: %u\n", header->code_field);
+        printf("  does_code:  %u\n", header->does_code);
+        printf("  flags (%02x):", header->flags);
+        flags = header->flags;
+        if (flags & EF_IMMEDIATE)      { printf(" immediate,"); }
+        if (flags & EF_MACHINE_CODE)   { printf(" machine_code,"); }
+        if (flags & EF_HIDDEN)         { printf(" hidden,"); }
+        if (flags & EF_COMPILE_ONLY)   { printf(" compile time only,"); }
+        printf("\n");
+
+        if (header->code_field == eOP_ENTER) {
+            ip = get_parameter_field(ctx, xt);
+        } else if (header->code_field == eOP_DOES_ENTER) {
+            ip = header->does_code;
+        } else{
+            ip = 0;
+        }
+
+        if (ip == 0) {
+            printf("Internal function\n");
+        } else {
+            T_OpCode opcode;
+            do {
+                address_type word = fetch16ubits(ctx->dataspace, ip);
+                header = (T_DictHeader*)(&(ctx->dataspace[word]));
+                opcode = header->code_field;
+                if (opcode < MAX_INSTRUCTION_COUNT) {
+                    ip += decompile_table[opcode](ctx, header, ip);
+                } else {
+                    opcode = 0;
+                }
+            } while (!((opcode == 0) || (opcode == eOP_EXIT)));
+        }
 
         return (ctx->ip + 2);
     }
@@ -705,10 +885,16 @@ static instruction_pointer_type instr_create(
         instr_word(ctx, dict_entry);
         word_found = (T_PackedString*)(&(ctx->dataspace[FF_LOC_WORD_BUFFER]));
         if (word_found->count > 0) {
+            /* The defining word used to create this word */
+            T_DictHeader* defining_header =
+                (T_DictHeader*)(ctx->dataspace+dict_entry);
+            instr_drop(ctx, dict_entry);
             T_DictHeader* header = add_dict_entry(ctx, word_found);
             header->flags |= EF_MACHINE_CODE;
-            header->code_field = eOP_CREATE_RT;
+            header->code_field = eOP_CREATE_ENTER;
             header->flags &= ~(EF_DIRTY);
+            /* It could have a DOES> part, copy it */
+            header->does_code = defining_header->does_code;
             return (ctx->ip + 2);
         } else {
             fprintf(stderr, "Could not find a name following CREATE\n");
@@ -724,7 +910,7 @@ static instruction_pointer_type instr_create(
  * on stack.
  *
  */
-static instruction_pointer_type instr_create_rt(
+static instruction_pointer_type instr_create_enter(
         T_Context* ctx, address_type dict_entry)
 {
     if (will_overflow(&(ctx->data_stack))) {
@@ -732,6 +918,7 @@ static instruction_pointer_type instr_create_rt(
         return instr_abort(ctx, dict_entry);
     } else {
         address_type parameter_field = get_parameter_field(ctx, dict_entry);
+        // TODO
         push(ctx->dataspace, &(ctx->data_stack), parameter_field);
         return (ctx->ip + 2);
     }
@@ -788,6 +975,11 @@ static instruction_pointer_type instr_execute(
         } else if (opcode == eOP_ENTER) {
             /* Enter is special, because we continue (the inner interpreter) at
              * the word that is entered.
+             */
+            return ip;
+        } else if (opcode == eOP_DOES_ENTER) {
+            /* DOES_ENTER is special, because we continue (the inner
+             * interpreter) at the word that is entered.
              */
             return ip;
         } else {
@@ -929,6 +1121,8 @@ static instruction_pointer_type instr_wordbuffer(
 /**
  * ENTER
  *
+ * (r:  -- address )
+ *
  * Push the address of the next instruction onto the return stack
  * Set the IP to the address of the parameter field of the word
  * associated with this ENTER and continue running there.
@@ -949,7 +1143,7 @@ static instruction_pointer_type instr_enter(
 /**
  * EXIT
  *
- * (r: address -- )
+ * (r: address --  )
  *
  */
 static instruction_pointer_type instr_exit(
@@ -1153,21 +1347,7 @@ static instruction_pointer_type instr_bye(T_Context* ctx, address_type word)
 }
 
 /**
- * DROP  ( n -- )
- */
-static instruction_pointer_type instr_drop(T_Context* ctx, address_type word)
-{
-    if (is_empty(&ctx->data_stack)) {
-        fprintf(stderr, "Data stack is empty\n");
-        return instr_abort(ctx, word);
-    } else {
-        (void)(pop(ctx->dataspace, &(ctx->data_stack)));
-        return (ctx->ip + 2);
-    }
-}
-
-/**
- * !     ( n addr --  )                         "store"
+ * !     ( n addr --  )                                             "store"
  *
  * Store n at addr.
  */
@@ -1680,7 +1860,10 @@ static void fill_instruction_table(void)
     instruction_table[eOP_DUP]        = instr_dup;
     instruction_table[eOP_WORD]       = instr_word;
     instruction_table[eOP_CREATE]     = instr_create;
-    instruction_table[eOP_CREATE_RT]  = instr_create_rt;
+    instruction_table[eOP_CREATE_ENTER]  = instr_create_enter;
+    instruction_table[eOP_DOES]       = instr_does;
+    instruction_table[eOP_DOES_RT]    = instr_does_rt;
+    instruction_table[eOP_DOES_ENTER] = instr_does_enter;
     instruction_table[eOP_EXECUTE]    = instr_execute;
     instruction_table[eOP_ALLOT]      = instr_allot;
     instruction_table[eOP_STATE]      = instr_state;
@@ -1716,8 +1899,11 @@ static void fill_instruction_table(void)
     instruction_table[eOP_ABORT]      = instr_abort;
     instruction_table[eOP_BASE]       = instr_base;
     instruction_table[eOP_PAREN]      = instr_paren;
+    instruction_table[eOP_DECOMPILE]  = instr_decompile;
+    instruction_table[eOP_ADD]        = instr_add;
 }
 
+/* --------------------------------------------------------------------*/
 
 static void fill_decompilation_table(void)
 {
@@ -1874,7 +2060,6 @@ T_DictHeader* add_core_word(
     header->code_field = op_code;
     header->flags = flags;
 
-
     return header;
 }
 
@@ -1918,6 +2103,7 @@ void bootstrap(T_Context* ctx)
     add_core_word(ctx, "WHILE",  eOP_WHILE,     EF_IMMEDIATE | EF_COMPILE_ONLY);
     add_core_word(ctx, "REPEAT", eOP_REPEAT,    EF_IMMEDIATE | EF_COMPILE_ONLY);
     add_core_word(ctx, "LITERAL", eOP_LITERAL,  EF_IMMEDIATE | EF_COMPILE_ONLY);
+    add_core_word(ctx, "DOES>",  eOP_DOES,      EF_IMMEDIATE | EF_COMPILE_ONLY);
     add_core_word(ctx, "(",      eOP_PAREN,     EF_IMMEDIATE);
 
     /* Hidden, have run time behaviour only, used by compiling words and
@@ -1925,6 +2111,7 @@ void bootstrap(T_Context* ctx)
     add_core_word(ctx, "PUSH",     eOP_PUSH,     EF_HIDDEN);
     add_core_word(ctx, "JUMP",     eOP_JUMP,     EF_HIDDEN);
     add_core_word(ctx, "JUMP_IF",  eOP_JUMP_IF,  EF_HIDDEN);
+    add_core_word(ctx, "DOES_RT",  eOP_DOES_RT,  EF_HIDDEN);
 
     /* We now have enough words to compile a new version of INTERPRET
      */
@@ -1934,6 +2121,8 @@ void bootstrap(T_Context* ctx)
     /* Add additional words */
     add_core_word(ctx, "BASE",       eOP_BASE,       0);
     add_core_word(ctx, "!",          eOP_STORE,      0);
+    add_core_word(ctx, "DECOMPILE",  eOP_DECOMPILE,  0);
+    add_core_word(ctx, "+",          eOP_ADD,        0);
 
     /* Now we can run it in the inner interpreter */
     {
@@ -1979,7 +2168,6 @@ void bootstrap(T_Context* ctx)
 }
 
 /* --------------------------------------------------------------------*/
-
 int main(int argc, char** argv)
 {
     T_Context context;
